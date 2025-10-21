@@ -62,6 +62,37 @@ def beep(pattern):
             pass
 
 
+def get_reader_commands(reader_name):
+    """リーダー名に応じてPC/SCコマンドセットを返す"""
+    name = str(reader_name).upper()
+    # Sony/PaSoRi 系（FeliCa対応）
+    if any(k in name for k in ["SONY", "RC-S", "PASORI"]):
+        return [
+            [0xFF, 0xCA, 0x00, 0x00, 0x00],  # UID（可変）
+            [0xFF, 0xCA, 0x00, 0x00, 0x04],  # 4B UID
+            [0xFF, 0xCA, 0x00, 0x00, 0x07],  # 7B UID
+            [0xFF, 0xB0, 0x00, 0x00, 0x09, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00],  # FeliCa IDm
+            [0xFF, 0xCA, 0x01, 0x00, 0x00],  # Get Data
+        ]
+    # Circle CIR315 系
+    if any(k in name for k in ["CIRCLE", "CIR315", "CIR-315"]):
+        return [
+            [0xFF, 0xCA, 0x00, 0x00, 0x00],
+            [0xFF, 0xCA, 0x00, 0x00, 0x04],
+            [0xFF, 0xCA, 0x01, 0x00, 0x00],
+            [0xFF, 0xB0, 0x00, 0x00, 0x09, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00],
+            [0xFF, 0xCA, 0x00, 0x00, 0x07],
+        ]
+    # 汎用
+    return [
+        [0xFF, 0xCA, 0x00, 0x00, 0x00],
+        [0xFF, 0xCA, 0x00, 0x00, 0x04],
+        [0xFF, 0xCA, 0x00, 0x00, 0x07],
+        [0xFF, 0xCA, 0x00, 0x00, 0x0A],
+        [0xFF, 0xCA, 0x01, 0x00, 0x00],
+    ]
+
+
 class LocalCache:
     """ローカルキャッシュ"""
     
@@ -309,37 +340,59 @@ class WindowsClientGUI:
             try:
                 reader_list = pcsc_readers()
                 for i, reader in enumerate(reader_list, 1):
-                    threading.Thread(target=self.pcsc_worker, args=(reader, nfcpy_count+i), daemon=True).start()
+                    threading.Thread(
+                        target=self.pcsc_worker,
+                        args=(reader, str(reader), nfcpy_count + i),
+                        daemon=True
+                    ).start()
             except:
                 pass
     
     def nfcpy_worker(self, path, idx):
-        """nfcpyワーカー"""
+        """nfcpyワーカー（高速化版）"""
         last_id = None
+        clf = None
         
-        while self.running:
-            try:
-                clf = nfc.ContactlessFrontend(path)
-                if not clf:
-                    time.sleep(1)
-                    continue
-                
-                tag = clf.connect(rdwr={'on-connect': lambda tag: False})
-                
-                if tag:
-                    card_id = (tag.idm if hasattr(tag, 'idm') else tag.identifier).hex().upper()
-                    
-                    if card_id and card_id != last_id:
-                        self.process_card(card_id, idx)
-                        last_id = card_id
-                
-                clf.close()
-            except:
-                pass
+        try:
+            # ContactlessFrontendを1回だけ開く（再利用で高速化）
+            clf = nfc.ContactlessFrontend(path)
+            if not clf:
+                self.log(f"[エラー] nfcpyリーダー#{idx}を開けません")
+                return
             
-            time.sleep(0.3)
+            while self.running:
+                try:
+                    # カード検出（短いタイムアウトで高速化）
+                    tag = clf.connect(rdwr={
+                        'on-connect': lambda tag: False,
+                        'beep-on-connect': False
+                    }, terminate=lambda: not self.running)
+                    
+                    if tag:
+                        card_id = (tag.idm if hasattr(tag, 'idm') else tag.identifier).hex().upper()
+                        
+                        if card_id and card_id != last_id:
+                            self.process_card(card_id, idx)
+                            last_id = card_id
+                
+                except IOError:
+                    # カードなし - 正常な状態
+                    pass
+                except:
+                    pass
+                
+                # 短いスリープで応答性を向上
+                time.sleep(0.05)
+        
+        finally:
+            # 終了時にContactlessFrontendをクローズ
+            if clf:
+                try:
+                    clf.close()
+                except:
+                    pass
     
-    def pcsc_worker(self, reader, idx):
+    def pcsc_worker(self, reader, reader_name, idx):
         """PCSCワーカー"""
         last_id = None
         
@@ -349,11 +402,13 @@ class WindowsClientGUI:
                 connection.connect()
                 
                 card_id = None
-                for cmd in [[0xFF,0xCA,0,0,0], [0xFF,0xCA,0,0,4], [0xFF,0xCA,0,0,7]]:
+                commands = get_reader_commands(reader_name)
+                for cmd in commands:
                     try:
                         response, sw1, sw2 = connection.transmit(cmd)
                         if sw1 == 0x90 and sw2 == 0x00 and len(response) >= 4:
-                            card_id = ''.join([f'{b:02X}' for b in response[:min(len(response),16)]])
+                            uid_len = min(len(response), 16)
+                            card_id = ''.join([f'{b:02X}' for b in response[:uid_len]])
                             if len(card_id) >= 8:
                                 break
                     except:
