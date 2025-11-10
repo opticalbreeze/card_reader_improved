@@ -718,23 +718,51 @@ class UnifiedClient:
         # リーダー検出
         nfcpy_count = 0
         pcsc_count = 0
+        nfcpy_devices = []
         
         # nfcpy検出
         if NFCPY_AVAILABLE:
-            for i in range(10):
+            print("[検出] nfcpyリーダーを検索中...")
+            
+            # まず'usb'で自動検出を試す（最も確実）
+            try:
+                clf = nfc.ContactlessFrontend('usb')
+                if clf:
+                    nfcpy_devices.append('usb')
+                    nfcpy_count += 1
+                    print(f"  - 検出: usb ({clf})")
+                    clf.close()
+            except IOError as e:
+                # デバイスなし
+                pass
+            except Exception as e:
+                # その他のエラー
+                print(f"  [警告] nfcpy検出エラー: {e}")
+                pass
+            
+            # 見つからない場合、特定のベンダーID:プロダクトIDで試す
+            if nfcpy_count == 0:
+                # Sony RC-S380
                 try:
-                    clf = nfc.ContactlessFrontend(f'usb:{i:03d}')
+                    clf = nfc.ContactlessFrontend('usb:054c:06c1')
                     if clf:
+                        nfcpy_devices.append('usb:054c:06c1')
                         nfcpy_count += 1
+                        print(f"  - 検出: usb:054c:06c1 ({clf})")
                         clf.close()
                 except:
-                    break
+                    pass
         
         # PC/SC検出
         if PYSCARD_AVAILABLE:
+            print("[検出] PC/SCリーダーを検索中...")
             try:
-                pcsc_count = len(pcsc_readers())
-            except:
+                readers_list = pcsc_readers()
+                pcsc_count = len(readers_list)
+                for idx, reader in enumerate(readers_list, 1):
+                    print(f"  - 検出: {reader}")
+            except Exception as e:
+                print(f"  [警告] PC/SC検出エラー: {e}")
                 pass
         
         # リーダーが見つからない場合
@@ -746,18 +774,18 @@ class UnifiedClient:
             self.gpio.led("red")
             return
         
-        print(f"[検出] nfcpy:{nfcpy_count}台 / PC/SC:{pcsc_count}台")
+        print(f"\n[検出] nfcpy:{nfcpy_count}台 / PC/SC:{pcsc_count}台")
+        print()
         
         # nfcpy リーダーの監視開始
         if nfcpy_count > 0:
-            for i in range(nfcpy_count):
-                path = f'usb:{i:03d}'
+            for i, path in enumerate(nfcpy_devices, 1):
                 threading.Thread(
                     target=self.nfcpy_worker, 
-                    args=(path, i+1), 
+                    args=(path, i), 
                     daemon=True
                 ).start()
-                print(f"[起動] nfcpyリーダー#{i+1}の監視を開始")
+                print(f"[起動] nfcpyリーダー#{i} ({path}) の監視を開始")
         
         # PC/SC リーダーの監視開始
         if pcsc_count > 0:
