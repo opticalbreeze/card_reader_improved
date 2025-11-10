@@ -26,11 +26,15 @@ import threading
 
 # LCD制御
 try:
-    from lcd_i2c import LCD_I2C
+    from lcd_i2c_improved import LCD_I2C
     LCD_AVAILABLE = True
 except ImportError:
-    LCD_AVAILABLE = False
-    print("[警告] LCD機能無効 - lcd_i2c.pyが見つかりません")
+    try:
+        from lcd_i2c import LCD_I2C
+        LCD_AVAILABLE = True
+    except ImportError:
+        LCD_AVAILABLE = False
+        print("[警告] LCD機能無効 - lcd_i2c.pyが見つかりません")
 
 # GPIO制御
 try:
