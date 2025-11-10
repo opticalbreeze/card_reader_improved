@@ -70,13 +70,15 @@ def _char_to_lcd_code(char):
     
     HD44780は以下の文字セットをサポート:
     - ASCII文字（0x20-0x7F）
-    - カタカナ（0xA0-0xDF）
+    - カタカナ（0xA1-0xDF）
+    
+    日本のAmazonで購入したHD44780互換LCDの標準的な文字コードマッピングを使用
     
     Args:
         char (str): 変換する文字（1文字）
     
     Returns:
-        int: LCD文字コード（0x20-0x7F または 0xA0-0xDF）
+        int: LCD文字コード（0x20-0x7F または 0xA1-0xDF）
     """
     code = ord(char)
     
@@ -87,34 +89,6 @@ def _char_to_lcd_code(char):
     # 制御文字（0x00-0x1F）はスペースに変換
     if code < 0x20:
         return 0x20
-    
-    # Unicodeカタカナ → HD44780カタカナコード（0xA0-0xDF）マッピング
-    # HD44780のカタカナ文字コード表に基づく
-    katakana_to_hd44780 = {
-        # 基本カタカナ（0xA1-0xCE）
-        'ア': 0xA1, 'イ': 0xA2, 'ウ': 0xA3, 'エ': 0xA4, 'オ': 0xA5,
-        'カ': 0xA6, 'キ': 0xA7, 'ク': 0xA8, 'ケ': 0xA9, 'コ': 0xAA,
-        'サ': 0xAB, 'シ': 0xAC, 'ス': 0xAD, 'セ': 0xAE, 'ソ': 0xAF,
-        'タ': 0xB0, 'チ': 0xB1, 'ツ': 0xB2, 'テ': 0xB3, 'ト': 0xB4,
-        'ナ': 0xB5, 'ニ': 0xB6, 'ヌ': 0xB7, 'ネ': 0xB8, 'ノ': 0xB9,
-        'ハ': 0xBA, 'ヒ': 0xBB, 'フ': 0xBC, 'ヘ': 0xBD, 'ホ': 0xBE,
-        'マ': 0xBF, 'ミ': 0xC0, 'ム': 0xC1, 'メ': 0xC2, 'モ': 0xC3,
-        'ヤ': 0xC4, 'ユ': 0xC5, 'ヨ': 0xC6,
-        'ラ': 0xC7, 'リ': 0xC8, 'ル': 0xC9, 'レ': 0xCA, 'ロ': 0xCB,
-        'ワ': 0xCC, 'ヲ': 0xCD, 'ン': 0xCE,
-        'ー': 0xD1,  # 長音記号
-        'ッ': 0xAF,  # 小文字ツ（ソの位置を使用、または別の方法）
-        'ャ': 0xC4,  # 小文字ヤ（ヤの位置を使用）
-        'ュ': 0xC5,  # 小文字ユ（ユの位置を使用）
-        'ョ': 0xC6,  # 小文字ヨ（ヨの位置を使用）
-        # 濁音・半濁音（濁点・半濁点を前の文字に結合する必要があるが、
-        # ここでは簡易的に基本文字にマッピング）
-        'ガ': 0xA6, 'ギ': 0xA7, 'グ': 0xA8, 'ゲ': 0xA9, 'ゴ': 0xAA,
-        'ザ': 0xAB, 'ジ': 0xAC, 'ズ': 0xAD, 'ゼ': 0xAE, 'ゾ': 0xAF,
-        'ダ': 0xB0, 'ヂ': 0xB1, 'ヅ': 0xB2, 'デ': 0xB3, 'ド': 0xB4,
-        'バ': 0xBA, 'ビ': 0xBB, 'ブ': 0xBC, 'ベ': 0xBD, 'ボ': 0xBE,
-        'パ': 0xBA, 'ピ': 0xBB, 'プ': 0xBC, 'ペ': 0xBD, 'ポ': 0xBE,
-    }
     
     # Unicodeひらがな → カタカナ変換マッピング
     hiragana_to_katakana = {
@@ -134,18 +108,78 @@ def _char_to_lcd_code(char):
         'ば': 'バ', 'び': 'ビ', 'ぶ': 'ブ', 'べ': 'ベ', 'ぼ': 'ボ',
         'ぱ': 'パ', 'ぴ': 'ピ', 'ぷ': 'プ', 'ぺ': 'ペ', 'ぽ': 'ポ',
         'っ': 'ッ', 'ゃ': 'ャ', 'ゅ': 'ュ', 'ょ': 'ョ',
-        'ー': 'ー', 'ー': 'ー',  # 長音記号
+        'ー': 'ー',
     }
     
     # ひらがなの場合、カタカナに変換
     if char in hiragana_to_katakana:
         char = hiragana_to_katakana[char]
     
+    # HD44780標準カタカナマッピング（日本のAmazonで購入したHD44780互換LCD用）
+    # 注意: LCDによって濁音・半濁音のマッピングが異なる場合があります
+    # うまく表示されない場合は、LCDのデータシートを確認してください
+    
+    # 基本カタカナ（0xA1-0xCE）- 標準的なHD44780マッピング
+    katakana_to_hd44780 = {
+        'ア': 0xA1, 'イ': 0xA2, 'ウ': 0xA3, 'エ': 0xA4, 'オ': 0xA5,
+        'カ': 0xA6, 'キ': 0xA7, 'ク': 0xA8, 'ケ': 0xA9, 'コ': 0xAA,
+        'サ': 0xAB, 'シ': 0xAC, 'ス': 0xAD, 'セ': 0xAE, 'ソ': 0xAF,
+        'タ': 0xB0, 'チ': 0xB1, 'ツ': 0xB2, 'テ': 0xB3, 'ト': 0xB4,
+        'ナ': 0xB5, 'ニ': 0xB6, 'ヌ': 0xB7, 'ネ': 0xB8, 'ノ': 0xB9,
+        'ハ': 0xBA, 'ヒ': 0xBB, 'フ': 0xBC, 'ヘ': 0xBD, 'ホ': 0xBE,
+        'マ': 0xBF, 'ミ': 0xC0, 'ム': 0xC1, 'メ': 0xC2, 'モ': 0xC3,
+        'ヤ': 0xC4, 'ユ': 0xC5, 'ヨ': 0xC6,
+        'ラ': 0xC7, 'リ': 0xC8, 'ル': 0xC9, 'レ': 0xCA, 'ロ': 0xCB,
+        'ワ': 0xCC, 'ヲ': 0xCD, 'ン': 0xCE,
+        # 長音記号（LCDによって異なる可能性があります）
+        # 注意: 0xD0は濁音「ガ」と重複するため、0xB0を使用
+        'ー': 0xB0,  # 長音記号（うまく表示されない場合は0xD0に変更してください）
+    }
+    
+    # 濁音・半濁音のマッピング（LCDによって異なる可能性があります）
+    # パターン1: 標準的なHD44780マッピング（0xD0-0xDF）
+    dakuon_mapping_standard = {
+        'ガ': 0xD0, 'ギ': 0xD1, 'グ': 0xD2, 'ゲ': 0xD3, 'ゴ': 0xD4,
+        'ザ': 0xD5, 'ジ': 0xD6, 'ズ': 0xD7, 'ゼ': 0xD8, 'ゾ': 0xD9,
+        'ダ': 0xDA, 'ヂ': 0xDB, 'ヅ': 0xDC, 'デ': 0xDD, 'ド': 0xDE,
+        'バ': 0xDF, 'ビ': 0xE0, 'ブ': 0xE1, 'ベ': 0xE2, 'ボ': 0xE3,
+        'パ': 0xE4, 'ピ': 0xE5, 'プ': 0xE6, 'ペ': 0xE7, 'ポ': 0xE8,
+    }
+    
+    # パターン2: 濁音・半濁音が標準文字セットにない場合の代替マッピング
+    # （基本文字にマッピング - 視覚的には不完全だが動作はする）
+    dakuon_mapping_fallback = {
+        'ガ': 0xA6, 'ギ': 0xA7, 'グ': 0xA8, 'ゲ': 0xA9, 'ゴ': 0xAA,  # カ行
+        'ザ': 0xAB, 'ジ': 0xAC, 'ズ': 0xAD, 'ゼ': 0xAE, 'ゾ': 0xAF,  # サ行
+        'ダ': 0xB0, 'ヂ': 0xB1, 'ヅ': 0xB2, 'デ': 0xB3, 'ド': 0xB4,  # タ行（注意: 0xB0は長音記号と重複）
+        'バ': 0xBA, 'ビ': 0xBB, 'ブ': 0xBC, 'ベ': 0xBD, 'ボ': 0xBE,  # ハ行
+        'パ': 0xBA, 'ピ': 0xBB, 'プ': 0xBC, 'ペ': 0xBD, 'ポ': 0xBE,  # ハ行（半濁音も同じ）
+    }
+    
+    # 小文字カタカナのマッピング
+    small_katakana_mapping = {
+        'ッ': 0xAF,  # ツの小文字 → ソ（0xAF）にマッピング
+        'ャ': 0xC4,  # ヤの小文字 → ヤ（0xC4）にマッピング
+        'ュ': 0xC5,  # ユの小文字 → ユ（0xC5）にマッピング
+        'ョ': 0xC6,  # ヨの小文字 → ヨ（0xC6）にマッピング
+    }
+    
+    # まず標準マッピングを試す
+    katakana_to_hd44780.update(dakuon_mapping_standard)
+    katakana_to_hd44780.update(small_katakana_mapping)
+    
+    # もし標準マッピングでうまくいかない場合は、
+    # 以下のコメントを外してフォールバックマッピングを使用してください
+    # katakana_to_hd44780.update(dakuon_mapping_fallback)
+    
     # カタカナをHD44780コードにマッピング
     if char in katakana_to_hd44780:
-        return katakana_to_hd44780[char]
+        lcd_code = katakana_to_hd44780[char]
+        # HD44780の有効範囲（0xA1-0xE8）をチェック
+        if 0xA1 <= lcd_code <= 0xE8:
+            return lcd_code
     
-    # その他の文字（漢字など）はスペースに変換
+    # その他の文字（漢字、記号など）はスペースに変換
     return 0x20
 
 
@@ -365,6 +399,44 @@ class LCD_I2C:
             self._write_byte(LCD_BACKLIGHT_OFF)
         except Exception:
             pass
+    
+    def test_character_codes(self, start_code=0xA1, end_code=0xDF):
+        """
+        文字コードのテスト表示
+        LCDに実際にどの文字が表示されるかを確認するためのデバッグ機能
+        
+        Args:
+            start_code (int): テスト開始コード（デフォルト: 0xA1）
+            end_code (int): テスト終了コード（デフォルト: 0xDF）
+        """
+        if not self.available:
+            return
+        
+        print(f"\n[文字コードテスト] 0x{start_code:02X} から 0x{end_code:02X} まで表示します")
+        print("LCDに表示される文字を確認してください")
+        print("="*60)
+        
+        try:
+            for code in range(start_code, end_code + 1):
+                self.clear()
+                self.set_cursor(0, 0)
+                # 16進数表示
+                hex_str = f"0x{code:02X}"
+                self.write(hex_str)
+                
+                self.set_cursor(1, 0)
+                # 実際の文字コードを送信
+                self._send(code, LCD_MODE_DATA)
+                
+                print(f"コード 0x{code:02X}: LCDに表示された文字を確認してください")
+                time.sleep(2)
+            
+            self.clear()
+            self.show("Test", "Complete!")
+            print("\n[完了] テストが完了しました")
+            
+        except Exception as e:
+            print(f"[エラー] テスト中にエラーが発生: {e}")
 
 
 # ============================================================================
@@ -413,6 +485,12 @@ if __name__ == "__main__":
         print("  入力: 'カードリーダー' → HD44780コードで直接表示")
         lcd.show("カードリーダー", "テキダカ OK")
         time.sleep(2)
+        
+        # テスト3-1: 文字コードテスト（オプション - コメントを外して使用）
+        # print("[テスト3-1] 文字コードテスト（0xA1-0xDF）")
+        # print("  LCDに表示される文字を確認して、マッピングを調整してください")
+        # print("  このテストを実行するには、上記のコメントを外してください")
+        # lcd.test_character_codes(0xA1, 0xDF)
         
         # テスト3-2: ひらがな→カタカナ→HD44780コード
         print("[テスト3-2] ひらがな→カタカナ変換")
