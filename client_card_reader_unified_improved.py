@@ -344,13 +344,13 @@ class UnifiedClient:
         self.lock = threading.Lock()
         self.running = True
         self.server_connected = False
-        self.current_message = "Touch Card"
+        self.current_message = "カードタッチ"
         
         # 起動処理
         self.gpio.sound("startup")
         self.gpio.led("red")
         if self.lcd:
-            self.lcd.show_with_time("Starting...")
+            self.lcd.show_with_time("キドウチュウ")
         
         # バックグラウンドスレッド開始
         threading.Thread(target=self.monitor_server, daemon=True).start()
@@ -379,15 +379,15 @@ class UnifiedClient:
                         # 再接続成功
                         print("[サーバー] 再接続成功")
                         if self.lcd:
-                            self.lcd.show_with_time("Server OK")
+                            self.lcd.show_with_time("サーバー OK")
                             time.sleep(2)
                         self.gpio.sound("connect")
                     else:
                         # 初回接続成功
                         if self.lcd:
-                            self.lcd.show_with_time("Server Connected")
+                            self.lcd.show_with_time("サーバー接続")
                             time.sleep(2)
-                            self.lcd.show_with_time("Touch Card")
+                            self.lcd.show_with_time("カードタッチ")
                         self.gpio.sound("connect")
                     
                     self.gpio.led("green")
@@ -402,7 +402,7 @@ class UnifiedClient:
                     retry_count += 1
                     print(f"[サーバー] 再接続試行 {retry_count}/{max_retries}")
                     if self.lcd:
-                        self.lcd.show_with_time(f"Retry {retry_count}/{max_retries}")
+                        self.lcd.show_with_time(f"リトライ {retry_count}/{max_retries}")
                     
                     time.sleep(5)
                     continue
@@ -410,7 +410,7 @@ class UnifiedClient:
                     if retry_count == max_retries:
                         print("[サーバー] 再接続失敗 - 1時間後に再試行")
                         if self.lcd:
-                            self.lcd.show_with_time("Server NG")
+                            self.lcd.show_with_time("サーバー NG")
                         self.gpio.blink_orange()
                         retry_count += 1
             
@@ -457,7 +457,7 @@ class UnifiedClient:
         if duration > 0:
             def reset():
                 time.sleep(duration)
-                self.current_message = "Touch Card"
+                self.current_message = "カードタッチ"
             threading.Thread(target=reset, daemon=True).start()
     
     # ========================================================================
@@ -492,38 +492,38 @@ class UnifiedClient:
                 result = response.json()
                 if result.get('status') == 'success':
                     print(f"[送信成功] {result.get('message', 'サーバーに記録')}")
-                    self.set_lcd_message("Sent to Server", 1)
+                    self.set_lcd_message("サーバー送信", 1)
                     self.gpio.sound("success")
                     self.gpio.led("blue")
                     return True
                 else:
                     print(f"[送信失敗] サーバーエラー: {result.get('message')}")
-                    self.set_lcd_message("Saved Local", 1)
+                    self.set_lcd_message("ローカル保存", 1)
                     self.gpio.sound("failure")
                     self.gpio.led("orange")
                     return False
             else:
                 print(f"[送信失敗] HTTP {response.status_code}")
-                self.set_lcd_message("Saved Local", 1)
+                self.set_lcd_message("ローカル保存", 1)
                 self.gpio.sound("failure")
                 self.gpio.led("orange")
                 return False
                 
         except requests.exceptions.ConnectionError:
             print(f"[送信失敗] サーバー接続エラー")
-            self.set_lcd_message("Saved Local", 1)
+            self.set_lcd_message("ローカル保存", 1)
             self.gpio.sound("failure")
             self.gpio.led("orange")
             return False
         except requests.exceptions.Timeout:
             print(f"[送信失敗] タイムアウト")
-            self.set_lcd_message("Saved Local", 1)
+            self.set_lcd_message("ローカル保存", 1)
             self.gpio.sound("failure")
             self.gpio.led("orange")
             return False
         except Exception as e:
             print(f"[送信失敗] 予期しないエラー: {e}")
-            self.set_lcd_message("Saved Local", 1)
+            self.set_lcd_message("ローカル保存", 1)
             self.gpio.sound("failure")
             self.gpio.led("orange")
             return False
@@ -542,7 +542,7 @@ class UnifiedClient:
         timestamp = datetime.now().isoformat()
         
         # カード読み込みフィードバック
-        self.set_lcd_message("Card Read", 1)
+        self.set_lcd_message("カード読取", 1)
         self.gpio.sound("card_read")
         self.gpio.led("green")
         
@@ -774,7 +774,7 @@ class UnifiedClient:
             print("[エラー] カードリーダーが見つかりません")
             print("[ヒント] リーダーを接続してプログラムを再起動してください")
             if self.lcd:
-                self.lcd.show_with_time("No Reader Found")
+                self.lcd.show_with_time("リーダーなし")
             self.gpio.led("red")
             return
         
@@ -828,7 +828,7 @@ class UnifiedClient:
             
             # LCD表示
             if self.lcd:
-                self.lcd.show_with_time("Stopped")
+                self.lcd.show_with_time("停止")
             
             # GPIOクリーンアップ
             self.gpio.cleanup()
