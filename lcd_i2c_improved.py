@@ -119,32 +119,67 @@ def _char_to_lcd_code(char):
     # 注意: LCDによって濁音・半濁音のマッピングが異なる場合があります
     # うまく表示されない場合は、LCDのデータシートを確認してください
     
-    # 基本カタカナ（0xA1-0xCE）- 標準的なHD44780マッピング
+    # 基本カタカナマッピング
+    # 実際のLCDテスト結果に基づくマッピング:
+    #   ツ: 0xAF, カ: 0xB6, タ: 0xC0, チ: 0xC1, ト: 0xC4
+    # 注意: このLCDの文字コードマッピングは標準的なHD44780と異なります
+    # 他の文字も確認が必要です（特に「ー」と「ド」）
     katakana_to_hd44780 = {
+        # 実際のLCDテスト結果に基づくマッピング
         'ア': 0xA1, 'イ': 0xA2, 'ウ': 0xA3, 'エ': 0xA4, 'オ': 0xA5,
-        'カ': 0xA6, 'キ': 0xA7, 'ク': 0xA8, 'ケ': 0xA9, 'コ': 0xAA,
+        'カ': 0xB6,  # テスト結果: 0xB6
+        'キ': 0xB7, 'ク': 0xB8, 'ケ': 0xB9, 'コ': 0xBA,
         'サ': 0xAB, 'シ': 0xAC, 'ス': 0xAD, 'セ': 0xAE, 'ソ': 0xAF,
-        'タ': 0xB0, 'チ': 0xB1, 'ツ': 0xB2, 'テ': 0xB3, 'ト': 0xB4,
+        'タ': 0xC0,  # テスト結果: 0xC0
+        'チ': 0xC1,  # テスト結果: 0xC1
+        'ツ': 0xAF,  # テスト結果: 0xAF
+        'テ': 0xC3, 'ト': 0xC4,  # テスト結果: ト=0xC4
         'ナ': 0xB5, 'ニ': 0xB6, 'ヌ': 0xB7, 'ネ': 0xB8, 'ノ': 0xB9,
         'ハ': 0xBA, 'ヒ': 0xBB, 'フ': 0xBC, 'ヘ': 0xBD, 'ホ': 0xBE,
         'マ': 0xBF, 'ミ': 0xC0, 'ム': 0xC1, 'メ': 0xC2, 'モ': 0xC3,
         'ヤ': 0xC4, 'ユ': 0xC5, 'ヨ': 0xC6,
         'ラ': 0xC7, 'リ': 0xC8, 'ル': 0xC9, 'レ': 0xCA, 'ロ': 0xCB,
         'ワ': 0xCC, 'ヲ': 0xCD, 'ン': 0xCE,
-        # 長音記号（LCDによって異なる可能性があります）
-        # 注意: 0xD0は濁音「ガ」と重複するため、0xB0を使用
-        'ー': 0xB0,  # 長音記号（うまく表示されない場合は0xD0に変更してください）
+        # 長音記号（テスト結果: 0xB0）
+        'ー': 0xB0,  # テスト結果: 0xB0
     }
     
-    # 濁音・半濁音のマッピング（LCDによって異なる可能性があります）
-    # パターン1: 標準的なHD44780マッピング（0xD0-0xDF）
+    # 濁音・半濁音のマッピング
+    # 注意: このLCDには濁音の文字セットがありません
+    # 濁音は基本文字+濁点記号（" = 0xDE）で表現します
+    # 例: ド = ト（0xC4）+ "（0xDE）
     dakuon_mapping_standard = {
-        'ガ': 0xD0, 'ギ': 0xD1, 'グ': 0xD2, 'ゲ': 0xD3, 'ゴ': 0xD4,
-        'ザ': 0xD5, 'ジ': 0xD6, 'ズ': 0xD7, 'ゼ': 0xD8, 'ゾ': 0xD9,
-        'ダ': 0xDA, 'ヂ': 0xDB, 'ヅ': 0xDC, 'デ': 0xDD, 'ド': 0xDE,
-        'バ': 0xDF, 'ビ': 0xE0, 'ブ': 0xE1, 'ベ': 0xE2, 'ボ': 0xE3,
-        'パ': 0xE4, 'ピ': 0xE5, 'プ': 0xE6, 'ペ': 0xE7, 'ポ': 0xE8,
+        # 濁音は基本文字+濁点記号で表現（_text_to_lcd_codesで処理）
+        # ここでは基本文字のコードをマッピング
+        'ガ': 0xB6,  # カ（0xB6）+ "
+        'ギ': 0xB7,  # キ（0xB7）+ "
+        'グ': 0xB8,  # ク（0xB8）+ "
+        'ゲ': 0xB9,  # ケ（0xB9）+ "
+        'ゴ': 0xBA,  # コ（0xBA）+ "
+        'ザ': 0xAB,  # サ（0xAB）+ "
+        'ジ': 0xAC,  # シ（0xAC）+ "
+        'ズ': 0xAD,  # ス（0xAD）+ "
+        'ゼ': 0xAE,  # セ（0xAE）+ "
+        'ゾ': 0xAF,  # ソ（0xAF）+ "
+        'ダ': 0xC0,  # タ（0xC0）+ "
+        'ヂ': 0xC1,  # チ（0xC1）+ "
+        'ヅ': 0xAF,  # ツ（0xAF）+ "
+        'デ': 0xC3,  # テ（0xC3）+ "
+        'ド': 0xC4,  # ト（0xC4）+ "（テスト結果: ト=0xC4, "=0xDE）
+        'バ': 0xBA,  # ハ（0xBA）+ "
+        'ビ': 0xBB,  # ヒ（0xBB）+ "
+        'ブ': 0xBC,  # フ（0xBC）+ "
+        'ベ': 0xBD,  # ヘ（0xBD）+ "
+        'ボ': 0xBE,  # ホ（0xBE）+ "
+        'パ': 0xBA,  # ハ（0xBA）+ 半濁点（このLCDには半濁点がないため、濁点で代用）
+        'ピ': 0xBB,  # ヒ（0xBB）+ 半濁点
+        'プ': 0xBC,  # フ（0xBC）+ 半濁点
+        'ペ': 0xBD,  # ヘ（0xBD）+ 半濁点
+        'ポ': 0xBE,  # ホ（0xBE）+ 半濁点
     }
+    
+    # 濁点記号のコード
+    DAKUTEN_CODE = 0xDE  # "（ダブルクォート）
     
     # パターン2: 濁音・半濁音が標準文字セットにない場合の代替マッピング
     # （基本文字にマッピング - 視覚的には不完全だが動作はする）
@@ -165,8 +200,10 @@ def _char_to_lcd_code(char):
     }
     
     # まず標準マッピングを試す
-    katakana_to_hd44780.update(dakuon_mapping_standard)
     katakana_to_hd44780.update(small_katakana_mapping)
+    
+    # 注意: 濁音はkatakana_to_hd44780に追加しない
+    # 濁音は_text_to_lcd_codes関数で基本文字+濁点記号として処理される
     
     # もし標準マッピングでうまくいかない場合は、
     # 以下のコメントを外してフォールバックマッピングを使用してください
@@ -179,6 +216,10 @@ def _char_to_lcd_code(char):
         if 0xA1 <= lcd_code <= 0xE8:
             return lcd_code
     
+    # 濁音の場合は基本文字のコードを返す（濁点記号は_text_to_lcd_codesで追加）
+    if char in dakuon_mapping_standard:
+        return dakuon_mapping_standard[char]
+    
     # その他の文字（漢字、記号など）はスペースに変換
     return 0x20
 
@@ -186,18 +227,35 @@ def _char_to_lcd_code(char):
 def _text_to_lcd_codes(text):
     """
     テキストをLCD文字コードのリストに変換
+    濁音は基本文字+濁点記号（" = 0xDE）で表現します
     
     Args:
         text (str): 変換するテキスト
     
     Returns:
-        list: LCD文字コードのリスト（Noneはスキップ）
+        list: LCD文字コードのリスト
     """
     codes = []
+    DAKUTEN_CODE = 0xDE  # 濁点記号（"）
+    
+    # 濁音のマッピング（基本文字のコード）
+    dakuon_base = {
+        'ガ': 0xB6, 'ギ': 0xB7, 'グ': 0xB8, 'ゲ': 0xB9, 'ゴ': 0xBA,  # カ行
+        'ザ': 0xAB, 'ジ': 0xAC, 'ズ': 0xAD, 'ゼ': 0xAE, 'ゾ': 0xAF,  # サ行
+        'ダ': 0xC0, 'ヂ': 0xC1, 'ヅ': 0xAF, 'デ': 0xC3, 'ド': 0xC4,  # タ行
+        'バ': 0xBA, 'ビ': 0xBB, 'ブ': 0xBC, 'ベ': 0xBD, 'ボ': 0xBE,  # ハ行
+        'パ': 0xBA, 'ピ': 0xBB, 'プ': 0xBC, 'ペ': 0xBD, 'ポ': 0xBE,  # ハ行（半濁音も同じ）
+    }
+    
     for char in text:
-        code = _char_to_lcd_code(char)
-        if code is not None:
+        # 濁音の場合は基本文字+濁点記号で表現
+        if char in dakuon_base:
+            codes.append(dakuon_base[char])  # 基本文字
+            codes.append(DAKUTEN_CODE)       # 濁点記号（"）
+        else:
+            code = _char_to_lcd_code(char)
             codes.append(code)
+    
     return codes
 
 
@@ -328,7 +386,7 @@ class LCD_I2C:
     def write(self, text):
         """
         テキストを書き込み（現在のカーソル位置から）
-        日本語文字は自動的にASCII文字に変換される
+        日本語文字は自動的にカタカナに変換されてHD44780コードで表示される
         
         Args:
             text (str): 表示するテキスト
@@ -340,7 +398,8 @@ class LCD_I2C:
             codes = _text_to_lcd_codes(text)
             for code in codes:
                 self._send(code, LCD_MODE_DATA)
-        except Exception:
+        except Exception as e:
+            print(f"[警告] LCD書き込みエラー: {e}")
             pass
     
     def show(self, line1, line2):
