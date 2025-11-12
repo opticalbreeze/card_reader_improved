@@ -368,14 +368,46 @@ class LocalDatabase:
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("""
-            SELECT id, idm, timestamp, terminal_id, retry_count
-            FROM attendance
-            WHERE sent_to_server = 0
-            ORDER BY timestamp ASC
-            LIMIT ?
-        """, (limit,))
-        records = cursor.fetchall()
+        
+        # カラムの存在確認
+        try:
+            cursor.execute("PRAGMA table_info(attendance)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            # カラムが存在しない場合はマイグレーション
+            if 'sent_to_server' not in columns or 'retry_count' not in columns:
+                print("[データベース] カラムが不足しています。マイグレーションを実行します...")
+                if 'sent_to_server' not in columns:
+                    cursor.execute("ALTER TABLE attendance ADD COLUMN sent_to_server INTEGER DEFAULT 0")
+                if 'retry_count' not in columns:
+                    cursor.execute("ALTER TABLE attendance ADD COLUMN retry_count INTEGER DEFAULT 0")
+                conn.commit()
+                # 既存レコードを未送信としてマーク
+                cursor.execute("UPDATE attendance SET sent_to_server = 0 WHERE sent_to_server IS NULL")
+                conn.commit()
+        except Exception as e:
+            print(f"[警告] マイグレーションエラー: {e}")
+        
+        try:
+            cursor.execute("""
+                SELECT id, idm, timestamp, terminal_id, retry_count
+                FROM attendance
+                WHERE sent_to_server = 0
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """, (limit,))
+            records = cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            print(f"[エラー] クエリ実行エラー: {e}")
+            # フォールバック: カラムなしで取得
+            cursor.execute("""
+                SELECT id, idm, timestamp, terminal_id, 0
+                FROM attendance
+                ORDER BY timestamp ASC
+                LIMIT ?
+            """, (limit,))
+            records = cursor.fetchall()
+        
         conn.close()
         return records
     
