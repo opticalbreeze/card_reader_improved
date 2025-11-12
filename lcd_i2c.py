@@ -22,9 +22,16 @@ except ImportError:
 class LCD_I2C:
     """I2C 1602 LCDディスプレイ"""
     
-    def __init__(self, addr=0x27, bus=1):
+    def __init__(self, addr=0x27, bus=1, backlight=True):
+        """
+        Args:
+            addr (int): I2Cアドレス（通常0x27または0x3F）
+            bus (int): I2Cバス番号（Raspberry Piは通常1）
+            backlight (bool): バックライトをオンにするか（True=オン、False=オフ）
+        """
         self.available = I2C_AVAILABLE
         self.addr = addr
+        self.backlight_state = 0x08 if backlight else 0x00  # バックライトビット
         
         if not self.available:
             return
@@ -52,8 +59,8 @@ class LCD_I2C:
             return
         
         try:
-            high = mode | (data & 0xF0) | 0x08
-            low = mode | ((data << 4) & 0xF0) | 0x08
+            high = mode | (data & 0xF0) | self.backlight_state
+            low = mode | ((data << 4) & 0xF0) | self.backlight_state
             
             self._write_byte(high)
             self._write_byte(high | 0x04)
@@ -138,6 +145,23 @@ class LCD_I2C:
         try:
             line1 = datetime.now().strftime("%Y/%m/%d %H:%M")
             self.show(line1, line2)
+        except:
+            pass
+    
+    def set_backlight(self, on=True):
+        """
+        バックライトのオン/オフを切り替え
+        
+        Args:
+            on (bool): True=オン、False=オフ
+        """
+        if not self.available:
+            return
+        
+        try:
+            self.backlight_state = 0x08 if on else 0x00
+            # 現在の表示を更新してバックライト状態を反映
+            self._write_byte(self.backlight_state)
         except:
             pass
 

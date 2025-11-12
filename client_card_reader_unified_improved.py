@@ -26,15 +26,11 @@ import threading
 
 # LCD制御
 try:
-    from lcd_i2c_improved import LCD_I2C
+    from lcd_i2c import LCD_I2C
     LCD_AVAILABLE = True
 except ImportError:
-    try:
-        from lcd_i2c import LCD_I2C
-        LCD_AVAILABLE = True
-    except ImportError:
-        LCD_AVAILABLE = False
-        print("[警告] LCD機能無効 - lcd_i2c.pyが見つかりません")
+    LCD_AVAILABLE = False
+    print("[警告] LCD機能無効 - lcd_i2c.pyが見つかりません")
 
 # GPIO制御
 try:
@@ -329,16 +325,17 @@ class UnifiedClient:
     LCD + GPIO + nfcpy/PC/SC全てに対応
     """
     
-    def __init__(self, server_url):
+    def __init__(self, server_url, lcd_backlight=True):
         """
         Args:
             server_url (str): サーバーURL
+            lcd_backlight (bool): LCDバックライト（True=明るい、False=暗い）
         """
         self.server_url = server_url
         self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
         self.cache = LocalCache()
         self.gpio = GPIO_Control()
-        self.lcd = LCD_I2C() if LCD_AVAILABLE else None
+        self.lcd = LCD_I2C(backlight=lcd_backlight) if LCD_AVAILABLE else None
         self.count = 0
         self.history = {}  # {card_id: last_seen_time}
         self.lock = threading.Lock()
@@ -848,7 +845,8 @@ def load_config():
     """
     config_file = "client_config.json"
     default_config = {
-        "server_url": "http://192.168.1.31:5000"
+        "server_url": "http://192.168.1.31:5000",
+        "lcd_backlight": True
     }
     
     config_path = Path(config_file)
@@ -883,15 +881,17 @@ def main():
     # 設定読み込み
     config = load_config()
     server_url = config.get('server_url', 'http://192.168.1.31:5000')
+    lcd_backlight = config.get('lcd_backlight', True)
     
     print(f"サーバーURL: {server_url}")
     print(f"端末ID: {get_mac_address()}")
+    print(f"LCDバックライト: {'明るい' if lcd_backlight else '暗い'}")
     print("="*70)
     print()
     
     # クライアント起動
     try:
-        client = UnifiedClient(server_url)
+        client = UnifiedClient(server_url, lcd_backlight=lcd_backlight)
         client.run()
     except KeyboardInterrupt:
         print("\n[終了] プログラムを終了します")
