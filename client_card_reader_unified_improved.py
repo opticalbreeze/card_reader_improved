@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ラズパイ統合版クライアント（改善版）
+ラズパイ統合版クライアント（スタンドアロン版）
 - LCD I2C 1602対応
 - GPIO制御（LED + ブザー）
 - nfcpy + PC/SC両対応
 - MACアドレスベースの端末ID自動取得
-- サーバー送信機能 + ローカルキャッシュ
-- 自動リトライ機能
+- ローカルデータベースに直接保存（サーバー不要）
 """
 
 import time
@@ -15,7 +14,6 @@ import sys
 import json
 import sqlite3
 import uuid
-import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 import threading
@@ -123,6 +121,7 @@ class GPIO_Control:
             GPIO.setwarnings(False)
             GPIO.setup(BUZZER_PIN, GPIO.OUT)
             GPIO.setup([LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN], GPIO.OUT)
+            print(f"[GPIO] ピン設定完了 - 赤:{LED_RED_PIN} 緑:{LED_GREEN_PIN} 青:{LED_BLUE_PIN}")
             
             # PWM設定（LED用）
             self.pwms = [
@@ -130,11 +129,16 @@ class GPIO_Control:
                 GPIO.PWM(LED_GREEN_PIN, 1000),
                 GPIO.PWM(LED_BLUE_PIN, 1000)
             ]
-            for pwm in self.pwms:
+            for i, pwm in enumerate(self.pwms):
                 pwm.start(0)
+                print(f"[PWM] LED {['赤','緑','青'][i]} PWM初期化完了")
+            print("[GPIO] 初期化成功")
         except Exception as e:
             print(f"[警告] GPIO初期化失敗: {e}")
+            import traceback
+            traceback.print_exc()
             self.available = False
+            self.pwms = []
     
     def sound(self, pattern):
         """
@@ -164,16 +168,24 @@ class GPIO_Control:
             color (str): 色名（"off", "red", "green", "blue", "orange"など）
         """
         if not self.available:
+            print(f"[警告] GPIOが利用不可のため、LED制御をスキップ: {color}")
             return
         
         self.stop_blink()
         r, g, b = LED_COLORS.get(color, (0, 0, 0))
         try:
+            if not hasattr(self, 'pwms') or not self.pwms:
+                print(f"[エラー] PWMが初期化されていません")
+                return
+            
             self.pwms[0].ChangeDutyCycle(r)
             self.pwms[1].ChangeDutyCycle(g)
             self.pwms[2].ChangeDutyCycle(b)
-        except Exception:
-            pass
+            print(f"[LED] {color} - R={r} G={g} B={b}")
+        except Exception as e:
+            print(f"[エラー] LED制御失敗 ({color}): {e}")
+            import traceback
+            traceback.print_exc()
     
     def blink_orange(self):
         """
@@ -218,13 +230,14 @@ class GPIO_Control:
 # ローカルキャッシュクラス
 # ============================================================================
 
-class LocalCache:
+class LocalDatabase:
     """
-    ローカルキャッシュ管理（送信失敗時のデータ保存）
-    SQLiteを使用して未送信データを保持し、定期的に再送信を試みる
+    ローカルデータベース管理（スタンドアロン版）
+    SQLiteを使用して打刻データを直接保存
+    サーバー不要で動作可能
     """
     
-    def __init__(self, db_path="local_cache.db"):
+    def __init__(self, db_path="attendance.db"):
         """
         Args:
             db_path (str): データベースファイルのパス
@@ -236,87 +249,149 @@ class LocalCache:
         """データベースの初期化（テーブル作成）"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        
+        # 打刻データテーブル（サーバーと同じ構造）
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pending_records (
+            CREATE TABLE IF NOT EXISTS attendance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 idm TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 terminal_id TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                retry_count INTEGER DEFAULT 0
+                received_at TEXT NOT NULL
             )
         """)
+        
+        # インデックスの作成（検索パフォーマンス向上）
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_idm ON attendance(idm)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_timestamp ON attendance(timestamp)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_terminal_id ON attendance(terminal_id)
+        """)
+        
         conn.commit()
         conn.close()
+        print(f"[データベース] 初期化完了: {self.db_path}")
     
-    def save_record(self, idm, timestamp, terminal_id):
+    def save_attendance(self, idm, timestamp, terminal_id):
         """
-        レコードを保存
+        打刻データをデータベースに保存
         
         Args:
             idm (str): カードID
             timestamp (str): タイムスタンプ（ISO8601形式）
             terminal_id (str): 端末ID
+        
+        Returns:
+            int: 保存されたレコードID
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO pending_records (idm, timestamp, terminal_id, created_at)
+            INSERT INTO attendance (idm, timestamp, terminal_id, received_at)
             VALUES (?, ?, ?, ?)
         """, (idm, timestamp, terminal_id, datetime.now().isoformat()))
         conn.commit()
+        record_id = cursor.lastrowid
         conn.close()
-        print(f"[ローカル保存] IDm: {idm}")
+        print(f"[保存完了] ID:{record_id} | IDm:{idm} | 端末:{terminal_id} | 時刻:{timestamp}")
+        return record_id
     
-    def get_pending_records(self):
+    def get_all_records(self, limit=100):
         """
-        未送信レコードを取得（10分以上経過したもの）
+        すべての打刻レコードを取得
+        
+        Args:
+            limit (int): 取得件数の上限
         
         Returns:
-            list: (id, idm, timestamp, terminal_id, retry_count) のタプルのリスト
+            list: (id, idm, timestamp, terminal_id, received_at) のタプルのリスト
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        ten_minutes_ago = (datetime.now() - timedelta(minutes=10)).isoformat()
         cursor.execute("""
-            SELECT id, idm, timestamp, terminal_id, retry_count
-            FROM pending_records
-            WHERE created_at <= ?
-            ORDER BY created_at ASC
-        """, (ten_minutes_ago,))
+            SELECT id, idm, timestamp, terminal_id, received_at
+            FROM attendance
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """, (limit,))
         records = cursor.fetchall()
         conn.close()
         return records
     
-    def delete_record(self, record_id):
+    def search_records(self, idm=None, start_date=None, end_date=None, terminal_id=None, limit=100):
         """
-        送信成功したレコードを削除
+        打刻データを検索
         
         Args:
-            record_id (int): レコードID
+            idm (str): カードID（部分一致）
+            start_date (str): 開始日時
+            end_date (str): 終了日時
+            terminal_id (str): 端末ID（部分一致）
+            limit (int): 最大件数
+        
+        Returns:
+            list: 検索結果のリスト
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM pending_records WHERE id = ?", (record_id,))
-        conn.commit()
+        
+        query = "SELECT id, idm, timestamp, terminal_id, received_at FROM attendance WHERE 1=1"
+        params = []
+        
+        if idm:
+            query += " AND idm LIKE ?"
+            params.append(f"%{idm}%")
+        
+        if start_date:
+            query += " AND timestamp >= ?"
+            params.append(start_date)
+        
+        if end_date:
+            query += " AND timestamp <= ?"
+            params.append(end_date + " 23:59:59")
+        
+        if terminal_id:
+            query += " AND terminal_id LIKE ?"
+            params.append(f"%{terminal_id}%")
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        cursor.execute(query, params)
+        records = cursor.fetchall()
         conn.close()
+        return records
     
-    def increment_retry_count(self, record_id):
+    def get_stats(self):
         """
-        リトライカウントを増やす
+        統計情報を取得
         
-        Args:
-            record_id (int): レコードID
+        Returns:
+            dict: 統計情報
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE pending_records 
-            SET retry_count = retry_count + 1 
-            WHERE id = ?
-        """, (record_id,))
-        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM attendance")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(DISTINCT idm) FROM attendance")
+        unique_cards = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(DISTINCT terminal_id) FROM attendance")
+        unique_terminals = cursor.fetchone()[0]
+        
         conn.close()
+        
+        return {
+            'total_records': total,
+            'unique_cards': unique_cards,
+            'unique_terminals': unique_terminals
+        }
 
 
 # ============================================================================
@@ -325,100 +400,39 @@ class LocalCache:
 
 class UnifiedClient:
     """
-    ラズパイ統合版クライアント
+    ラズパイ統合版クライアント（スタンドアロン版）
     LCD + GPIO + nfcpy/PC/SC全てに対応
+    サーバー不要で直接データベースに保存
     """
     
-    def __init__(self, server_url):
+    def __init__(self):
         """
-        Args:
-            server_url (str): サーバーURL
+        スタンドアロン版：サーバーURL不要
         """
-        self.server_url = server_url
         self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
-        self.cache = LocalCache()
+        self.database = LocalDatabase()  # ローカルデータベース
         self.gpio = GPIO_Control()
         self.lcd = LCD_I2C() if LCD_AVAILABLE else None
         self.count = 0
         self.history = {}  # {card_id: last_seen_time}
         self.lock = threading.Lock()
         self.running = True
-        self.server_connected = False
         self.current_message = "カードタッチ"
         
         # 起動処理
         self.gpio.sound("startup")
-        self.gpio.led("red")
+        self.gpio.led("green")  # スタンドアロン版は常に緑
         if self.lcd:
             self.lcd.show_with_time("キドウチュウ")
+            time.sleep(2)
+            self.lcd.show_with_time("カードタッチ")
         
         # バックグラウンドスレッド開始
-        threading.Thread(target=self.monitor_server, daemon=True).start()
-        threading.Thread(target=self.retry_pending_records, daemon=True).start()
         threading.Thread(target=self.update_lcd_time, daemon=True).start()
     
     # ========================================================================
-    # サーバー監視
+    # サーバー監視機能は削除（スタンドアロン版では不要）
     # ========================================================================
-    
-    def monitor_server(self):
-        """
-        サーバーの接続状態を定期的に監視
-        1時間ごとにヘルスチェックを実行
-        """
-        retry_count = 0
-        max_retries = 2
-        
-        while self.running:
-            try:
-                response = requests.get(f"{self.server_url}/api/health", timeout=5)
-                if response.status_code == 200:
-                    self.server_connected = True
-                    
-                    if retry_count > 0:
-                        # 再接続成功
-                        print("[サーバー] 再接続成功")
-                        if self.lcd:
-                            self.lcd.show_with_time("サーバー OK")
-                            time.sleep(2)
-                        self.gpio.sound("connect")
-                    else:
-                        # 初回接続成功
-                        if self.lcd:
-                            self.lcd.show_with_time("サーバー接続")
-                            time.sleep(2)
-                            self.lcd.show_with_time("カードタッチ")
-                        self.gpio.sound("connect")
-                    
-                    self.gpio.led("green")
-                    retry_count = 0
-                else:
-                    raise Exception(f"Server response error: {response.status_code}")
-            
-            except requests.exceptions.ConnectionError:
-                self.server_connected = False
-                
-                if retry_count < max_retries:
-                    retry_count += 1
-                    print(f"[サーバー] 再接続試行 {retry_count}/{max_retries}")
-                    if self.lcd:
-                        self.lcd.show_with_time(f"リトライ {retry_count}/{max_retries}")
-                    
-                    time.sleep(5)
-                    continue
-                else:
-                    if retry_count == max_retries:
-                        print("[サーバー] 再接続失敗 - 1時間後に再試行")
-                        if self.lcd:
-                            self.lcd.show_with_time("サーバー NG")
-                        self.gpio.blink_orange()
-                        retry_count += 1
-            
-            except Exception as e:
-                print(f"[サーバー] エラー: {e}")
-                self.server_connected = False
-            
-            time.sleep(3600)  # 1時間待機
     
     # ========================================================================
     # LCD制御
@@ -461,76 +475,36 @@ class UnifiedClient:
             threading.Thread(target=reset, daemon=True).start()
     
     # ========================================================================
-    # サーバー通信
+    # データベース保存（スタンドアロン版）
     # ========================================================================
     
-    def send_to_server(self, idm, timestamp):
+    def save_to_database(self, idm, timestamp):
         """
-        サーバーにデータを送信
+        データベースに直接保存（スタンドアロン版）
         
         Args:
             idm (str): カードID
             timestamp (str): タイムスタンプ（ISO8601形式）
         
         Returns:
-            bool: 送信成功したかどうか
+            bool: 保存成功したかどうか
         """
-        data = {
-            'idm': idm,
-            'timestamp': timestamp,
-            'terminal_id': self.terminal_id
-        }
-        
         try:
-            response = requests.post(
-                f"{self.server_url}/api/attendance",
-                json=data,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('status') == 'success':
-                    print(f"[送信成功] {result.get('message', 'サーバーに記録')}")
-                    self.set_lcd_message("サーバー送信", 1)
-                    self.gpio.sound("success")
-                    self.gpio.led("blue")
-                    return True
-                else:
-                    print(f"[送信失敗] サーバーエラー: {result.get('message')}")
-                    self.set_lcd_message("ローカル保存", 1)
-                    self.gpio.sound("failure")
-                    self.gpio.led("orange")
-                    return False
-            else:
-                print(f"[送信失敗] HTTP {response.status_code}")
-                self.set_lcd_message("ローカル保存", 1)
-                self.gpio.sound("failure")
-                self.gpio.led("orange")
-                return False
-                
-        except requests.exceptions.ConnectionError:
-            print(f"[送信失敗] サーバー接続エラー")
-            self.set_lcd_message("ローカル保存", 1)
-            self.gpio.sound("failure")
-            self.gpio.led("orange")
-            return False
-        except requests.exceptions.Timeout:
-            print(f"[送信失敗] タイムアウト")
-            self.set_lcd_message("ローカル保存", 1)
-            self.gpio.sound("failure")
-            self.gpio.led("orange")
-            return False
+            record_id = self.database.save_attendance(idm, timestamp, self.terminal_id)
+            self.set_lcd_message("保存完了", 1)
+            self.gpio.sound("success")
+            self.gpio.led("blue")
+            return True
         except Exception as e:
-            print(f"[送信失敗] 予期しないエラー: {e}")
-            self.set_lcd_message("ローカル保存", 1)
+            print(f"[エラー] データベース保存失敗: {e}")
+            self.set_lcd_message("保存失敗", 1)
             self.gpio.sound("failure")
             self.gpio.led("orange")
             return False
     
     def process_card(self, card_id, reader_index):
         """
-        カードを処理（サーバー送信またはローカル保存）
+        カードを処理（データベースに直接保存）
         
         Args:
             card_id (str): カードID
@@ -546,35 +520,12 @@ class UnifiedClient:
         self.gpio.sound("card_read")
         self.gpio.led("green")
         
-        if self.send_to_server(card_id, timestamp):
-            # 送信成功
-            return True
-        else:
-            # 送信失敗 → ローカルに保存
-            self.cache.save_record(card_id, timestamp, self.terminal_id)
-            return False
+        # データベースに直接保存
+        return self.save_to_database(card_id, timestamp)
     
-    def retry_pending_records(self):
-        """
-        10分ごとに未送信レコードを再送信
-        バックグラウンドで動作するデーモンスレッド
-        """
-        while self.running:
-            time.sleep(600)  # 10分待機
-            
-            records = self.cache.get_pending_records()
-            if records:
-                print(f"\n[リトライ] {len(records)}件の未送信データを再送信します")
-                
-                for record in records:
-                    record_id, idm, timestamp, terminal_id, retry_count = record
-                    
-                    if self.send_to_server(idm, timestamp):
-                        self.cache.delete_record(record_id)
-                        print(f"[リトライ成功] IDm: {idm} (試行回数: {retry_count + 1})")
-                    else:
-                        self.cache.increment_retry_count(record_id)
-                        print(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
+    # ========================================================================
+    # リトライ機能は削除（スタンドアロン版では不要）
+    # ========================================================================
     
     # ========================================================================
     # カードリーダー制御
@@ -709,10 +660,10 @@ class UnifiedClient:
         リーダーを検出し、各リーダーで監視スレッドを起動
         """
         print("="*70)
-        print("[ラズパイ統合版クライアント（改善版）- LCD + GPIO + nfcpy/PC/SC]")
+        print("[ラズパイ統合版クライアント（スタンドアロン版）]")
         print("="*70)
         print(f"端末ID: {self.terminal_id}")
-        print(f"サーバー: {self.server_url}")
+        print(f"データベース: attendance.db（ローカル保存）")
         print(f"LCD: {'有効' if LCD_AVAILABLE else '無効'}")
         print(f"GPIO: {'有効' if GPIO_AVAILABLE else '無効'}")
         print(f"nfcpy: {'利用可能' if NFCPY_AVAILABLE else '利用不可'}")
@@ -835,38 +786,11 @@ class UnifiedClient:
 
 
 # ============================================================================
-# 設定ファイル管理
+# 設定ファイル管理（スタンドアロン版では不要）
 # ============================================================================
 
-def load_config():
-    """
-    設定ファイルを読み込み
-    ファイルが存在しない場合はデフォルト設定で作成
-    
-    Returns:
-        dict: 設定辞書
-    """
-    config_file = "client_config.json"
-    default_config = {
-        "server_url": "http://192.168.1.31:5000"
-    }
-    
-    config_path = Path(config_file)
-    
-    if config_path.exists():
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[警告] 設定ファイル読み込みエラー: {e}")
-            print("[情報] デフォルト設定を使用します")
-            return default_config
-    else:
-        # 設定ファイルを作成
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(default_config, f, indent=2, ensure_ascii=False)
-        print(f"[情報] 設定ファイルを作成しました: {config_file}")
-        return default_config
+# スタンドアロン版では設定ファイル不要
+# 以前のバージョンとの互換性のため、関数は残すが使用しない
 
 
 # ============================================================================
@@ -876,22 +800,18 @@ def load_config():
 def main():
     """メイン関数"""
     print("="*70)
-    print("ラズパイ統合版クライアント（改善版）")
+    print("ラズパイ統合版クライアント（スタンドアロン版）")
     print("="*70)
     print()
     
-    # 設定読み込み
-    config = load_config()
-    server_url = config.get('server_url', 'http://192.168.1.31:5000')
-    
-    print(f"サーバーURL: {server_url}")
     print(f"端末ID: {get_mac_address()}")
+    print(f"データベース: attendance.db（ローカル保存）")
     print("="*70)
     print()
     
-    # クライアント起動
+    # クライアント起動（スタンドアロン版：サーバーURL不要）
     try:
-        client = UnifiedClient(server_url)
+        client = UnifiedClient()
         client.run()
     except KeyboardInterrupt:
         print("\n[終了] プログラムを終了します")
