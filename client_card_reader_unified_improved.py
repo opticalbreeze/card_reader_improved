@@ -1331,14 +1331,17 @@ def main():
     try:
         client = UnifiedClient(server_url=server_url, retry_interval=retry_interval)
         
-        # GUI起動（VNC用）- 別スレッドで実行
+        # GUI起動（VNC用）- メインスレッドで実行
         if TKINTER_AVAILABLE:
             gui = UnifiedClientGUI(client)
-            gui_thread = threading.Thread(target=gui.run, daemon=True)
-            gui_thread.start()
-        
-        # メイン処理
-        client.run()
+            # カードリーダー処理を別スレッドで実行
+            client_thread = threading.Thread(target=client.run, daemon=True)
+            client_thread.start()
+            # GUIをメインスレッドで実行（ブロッキング）
+            gui.run()
+        else:
+            # GUIなしの場合は通常通り実行
+            client.run()
     except KeyboardInterrupt:
         print("\n[終了] プログラムを終了します")
     except Exception as e:
