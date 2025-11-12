@@ -297,6 +297,25 @@ class LocalDatabase:
             )
         """)
         
+        # 既存テーブルのマイグレーション（カラム追加）
+        try:
+            # sent_to_serverカラムが存在するか確認
+            cursor.execute("PRAGMA table_info(attendance)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'sent_to_server' not in columns:
+                print("[データベース] sent_to_serverカラムを追加中...")
+                cursor.execute("ALTER TABLE attendance ADD COLUMN sent_to_server INTEGER DEFAULT 0")
+            
+            if 'retry_count' not in columns:
+                print("[データベース] retry_countカラムを追加中...")
+                cursor.execute("ALTER TABLE attendance ADD COLUMN retry_count INTEGER DEFAULT 0")
+            
+            conn.commit()
+        except Exception as e:
+            print(f"[警告] データベースマイグレーションエラー: {e}")
+            conn.rollback()
+        
         # インデックスの作成（検索パフォーマンス向上）
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_idm ON attendance(idm)
@@ -517,7 +536,9 @@ class UnifiedClient:
         self.history = {}  # {card_id: last_seen_time}
         self.lock = threading.Lock()
         self.running = True
-        self.current_message = "カードタッチ"
+        # 端末IDを短縮表示用に変換（MACアドレスの最後の部分）
+        terminal_short = self.terminal_id.split(':')[-2:] if ':' in self.terminal_id else self.terminal_id[-5:]
+        self.current_message = f"カードタッチ {terminal_short}"
         self.server_available = False
         self.server_check_running = False
         
@@ -541,7 +562,9 @@ class UnifiedClient:
         if self.lcd:
             self.lcd.show_with_time("キドウチュウ")
             time.sleep(2)
-            self.lcd.show_with_time("カードタッチ")
+            # 端末IDを表示（MACアドレスの最後の部分）
+            terminal_display = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
+            self.lcd.show_with_time(f"カードタッチ {terminal_display}")
         
         # バックグラウンドスレッド開始
         threading.Thread(target=self.update_lcd_time, daemon=True).start()
@@ -714,7 +737,9 @@ class UnifiedClient:
         if duration > 0:
             def reset():
                 time.sleep(duration)
-                self.current_message = "カードタッチ"
+                # 端末IDを短縮表示用に変換
+                terminal_short = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
+                self.current_message = f"カードタッチ {terminal_short}"
             threading.Thread(target=reset, daemon=True).start()
     
     # ========================================================================
