@@ -810,8 +810,9 @@ class UnifiedClient:
                 # 端末IDを短縮表示用に変換
                 terminal_short = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
                 # TODO: カタカナ表示は後日対応
-        # self.current_message = f"カードタッチ {terminal_short}"
-        self.current_message = f"Touch Card {terminal_short}"
+                # self.current_message = f"カードタッチ {terminal_short}"
+                self.current_message = f"Touch Card {terminal_short}"
+            
             threading.Thread(target=reset, daemon=True).start()
     
     # ========================================================================
