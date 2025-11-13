@@ -41,13 +41,27 @@ class ConfigGUI:
     def load_config(self):
         """設定ファイルを読み込み"""
         default_config = {
-            "server_url": "http://192.168.1.31:5000"
+            "server_url": "http://192.168.1.31:5000",
+            "lcd_settings": {
+                "i2c_addr": 0x27,      # LCD I2Cアドレス（0x27または0x3F）
+                "i2c_bus": 1,           # I2Cバス番号（Raspberry Pi 3/4は1、初期モデルは0）
+                "backlight": True       # バックライトON/OFF
+            }
         }
         
         if Path(self.config_file).exists():
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                    # デフォルト設定をマージ（設定ファイルにない項目はデフォルト値を使用）
+                    if 'lcd_settings' not in config:
+                        config['lcd_settings'] = default_config['lcd_settings']
+                    else:
+                        # 部分的な設定がある場合、デフォルトとマージ
+                        for key, value in default_config['lcd_settings'].items():
+                            if key not in config['lcd_settings']:
+                                config['lcd_settings'][key] = value
+                    return config
             except Exception:
                 return default_config
         else:
@@ -155,17 +169,46 @@ class ConfigGUI:
         self.ip_entry.bind('<KeyRelease>', self.update_preview)
         self.port_entry.bind('<KeyRelease>', self.update_preview)
         
+        # LCD設定
+        lcd_frame = ttk.LabelFrame(main_frame, text="LCD設定", padding="10")
+        lcd_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        lcd_settings = self.config.get('lcd_settings', {})
+        
+        # I2Cアドレス設定
+        ttk.Label(lcd_frame, text="I2Cアドレス:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.lcd_addr_var = tk.StringVar(value=f"0x{lcd_settings.get('i2c_addr', 0x27):02X}")
+        lcd_addr_entry = ttk.Entry(lcd_frame, textvariable=self.lcd_addr_var, width=10)
+        lcd_addr_entry.grid(row=0, column=1, sticky=tk.W, padx=5)
+        ttk.Label(lcd_frame, text="(0x27 または 0x3F)", font=("", 8)).grid(row=0, column=2, sticky=tk.W)
+        
+        # I2Cバス番号設定
+        ttk.Label(lcd_frame, text="I2Cバス番号:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.lcd_bus_var = tk.IntVar(value=lcd_settings.get('i2c_bus', 1))
+        lcd_bus_spinbox = ttk.Spinbox(lcd_frame, from_=0, to=1, textvariable=self.lcd_bus_var, width=10)
+        lcd_bus_spinbox.grid(row=1, column=1, sticky=tk.W, padx=5)
+        ttk.Label(lcd_frame, text="(Raspberry Pi 3/4は1、初期モデルは0)", font=("", 8)).grid(row=1, column=2, sticky=tk.W)
+        
+        # バックライト設定
+        self.lcd_backlight_var = tk.BooleanVar(value=lcd_settings.get('backlight', True))
+        lcd_backlight_check = ttk.Checkbutton(
+            lcd_frame,
+            text="バックライトON",
+            variable=self.lcd_backlight_var
+        )
+        lcd_backlight_check.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=5)
+        
         # 接続テストボタン
         test_button = ttk.Button(
             main_frame,
             text="[接続テスト]",
             command=self.test_connection
         )
-        test_button.grid(row=4, column=0, columnspan=3, pady=10)
+        test_button.grid(row=5, column=0, columnspan=3, pady=10)
         
         # ボタンフレーム
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=20)
+        button_frame.grid(row=6, column=0, columnspan=3, pady=20)
         
         save_button = ttk.Button(
             button_frame,
@@ -198,7 +241,7 @@ class ConfigGUI:
             relief=tk.SUNKEN,
             anchor=tk.W
         )
-        self.status_label.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.status_label.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
     
     def set_preset_ip(self, ip):
         """プリセットIPを設定"""
@@ -265,6 +308,19 @@ class ConfigGUI:
         
         self.config['server_url'] = f"http://{ip}:{port}"
         
+        # LCD設定を保存
+        try:
+            lcd_addr_str = self.lcd_addr_var.get().strip()
+            lcd_addr = int(lcd_addr_str, 16) if lcd_addr_str.startswith('0x') else int(lcd_addr_str)
+            self.config['lcd_settings'] = {
+                'i2c_addr': lcd_addr,
+                'i2c_bus': self.lcd_bus_var.get(),
+                'backlight': self.lcd_backlight_var.get()
+            }
+        except ValueError:
+            messagebox.showwarning("警告", "LCD I2Cアドレスが正しくありません")
+            return
+        
         if self.save_config():
             # 現在の設定表示を更新
             self.current_url_label.config(text=self.config['server_url'])
@@ -281,6 +337,19 @@ class ConfigGUI:
             return
         
         self.config['server_url'] = f"http://{ip}:{port}"
+        
+        # LCD設定を保存
+        try:
+            lcd_addr_str = self.lcd_addr_var.get().strip()
+            lcd_addr = int(lcd_addr_str, 16) if lcd_addr_str.startswith('0x') else int(lcd_addr_str)
+            self.config['lcd_settings'] = {
+                'i2c_addr': lcd_addr,
+                'i2c_bus': self.lcd_bus_var.get(),
+                'backlight': self.lcd_backlight_var.get()
+            }
+        except ValueError:
+            messagebox.showwarning("警告", "LCD I2Cアドレスが正しくありません")
+            return
         
         if self.save_config():
             # 現在の設定表示を更新

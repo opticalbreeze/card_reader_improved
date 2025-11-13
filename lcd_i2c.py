@@ -181,16 +181,18 @@ class LCD_I2C:
     HD44780互換のI2C LCDモジュールを制御
     """
     
-    def __init__(self, addr=0x27, bus=1):
+    def __init__(self, addr=0x27, bus=1, backlight=True):
         """
         LCDを初期化
         
         Args:
             addr (int): I2Cアドレス（通常は0x27または0x3F）
             bus (int): I2Cバス番号（Raspberry Pi 3/4は1、初期モデルは0）
+            backlight (bool): バックライトON/OFF（デフォルト: True）
         """
         self.available = I2C_AVAILABLE
         self.addr = addr
+        self.backlight_enabled = backlight
         
         if not self.available:
             return
@@ -230,15 +232,18 @@ class LCD_I2C:
             return
         
         try:
+            # バックライト制御ビットを設定
+            backlight_bit = LCD_BACKLIGHT_ON if self.backlight_enabled else LCD_BACKLIGHT_OFF
+            
             # 上位4ビット送信
-            high = mode | (data & 0xF0) | LCD_BACKLIGHT_ON
+            high = mode | (data & 0xF0) | backlight_bit
             self._write_byte(high)
             self._write_byte(high | LCD_ENABLE)
             time.sleep(0.001)
             self._write_byte(high & ~LCD_ENABLE)
             
             # 下位4ビット送信
-            low = mode | ((data << 4) & 0xF0) | LCD_BACKLIGHT_ON
+            low = mode | ((data << 4) & 0xF0) | backlight_bit
             self._write_byte(low)
             self._write_byte(low | LCD_ENABLE)
             time.sleep(0.001)
@@ -355,6 +360,7 @@ class LCD_I2C:
         if not self.available:
             return
         
+        self.backlight_enabled = True
         try:
             self._write_byte(LCD_BACKLIGHT_ON)
         except Exception:
@@ -365,6 +371,7 @@ class LCD_I2C:
         if not self.available:
             return
         
+        self.backlight_enabled = False
         try:
             self._write_byte(LCD_BACKLIGHT_OFF)
         except Exception:
