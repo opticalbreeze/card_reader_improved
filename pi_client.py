@@ -578,12 +578,9 @@ class UnifiedClient:
         self.server_available = False
         self.server_check_running = False
         
-        # 端末IDを短縮表示用に変換（MACアドレスの最後の部分）
-        terminal_short_list = self.terminal_id.split(':')[-2:] if ':' in self.terminal_id else [self.terminal_id[-5:]]
-        terminal_short = ":".join(terminal_short_list)  # リストを文字列に変換
         # TODO: カタカナ表示は後日対応
         # self.current_message = f"カードタッチ {terminal_short}"
-        self.current_message = f"Touch Card {terminal_short}"
+        self.current_message = "Touch Card"
         
         # 起動音
         self.gpio.sound("startup")
@@ -615,12 +612,9 @@ class UnifiedClient:
         # self.lcd.show_with_time("キドウチュウ")
         self.lcd.show_with_time("Starting...")
         time.sleep(2)
-        # 端末IDを表示（MACアドレスの最後の部分）
-        terminal_display = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
         # TODO: カタカナ表示は後日対応
-        # LCDの2行目にスペース7文字 + 端末IDのみ表示（右寄せ）
         # self.lcd.show_with_time(f"カードタッチ {terminal_display}")
-        self.lcd.show_with_time(f"       {terminal_display}")
+        self.lcd.show_with_time("Touch Card")
     
     def _start_background_threads(self):
         """バックグラウンドスレッド開始"""
@@ -807,11 +801,9 @@ class UnifiedClient:
         if duration > 0:
             def reset():
                 time.sleep(duration)
-                # 端末IDを短縮表示用に変換
-                terminal_short = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
                 # TODO: カタカナ表示は後日対応
                 # self.current_message = f"カードタッチ {terminal_short}"
-                self.current_message = f"Touch Card {terminal_short}"
+                self.current_message = "Touch Card"
             
             threading.Thread(target=reset, daemon=True).start()
     
