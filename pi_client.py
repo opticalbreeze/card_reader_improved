@@ -592,11 +592,15 @@ class UnifiedClient:
             self.gpio.led("green")
         
         if self.lcd:
-            self.lcd.show_with_time("キドウチュウ")
+            # TODO: カタカナ表示は後日対応（文字コード調査が必要）
+            # self.lcd.show_with_time("キドウチュウ")
+            self.lcd.show_with_time("Starting...")
             time.sleep(2)
             # 端末IDを表示（MACアドレスの最後の部分）
             terminal_display = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
-            self.lcd.show_with_time(f"カードタッチ {terminal_display}")
+            # TODO: カタカナ表示は後日対応
+            # self.lcd.show_with_time(f"カードタッチ {terminal_display}")
+            self.lcd.show_with_time(f"Touch Card {terminal_display}")
         
         # バックグラウンドスレッド開始
         threading.Thread(target=self.update_lcd_time, daemon=True).start()
@@ -823,7 +827,9 @@ class UnifiedClient:
         timestamp = datetime.now().isoformat()
         
         # カード読み込みフィードバック
-        self.set_lcd_message("カード読取", 1)
+        # TODO: カタカナ表示は後日対応
+        # self.set_lcd_message("カード読取", 1)
+        self.set_lcd_message("Reading...", 1)
         self.gpio.sound("card_read")
         self.gpio.led("green")
         
@@ -836,7 +842,9 @@ class UnifiedClient:
             # サーバー送信成功 → DBに送信済みとして保存
             record_id = self.save_to_database(card_id, timestamp, sent_to_server=1)
             if record_id:
-                self.set_lcd_message("サーバー送信", 1)
+                # TODO: カタカナ表示は後日対応
+                # self.set_lcd_message("サーバー送信", 1)
+                self.set_lcd_message("Sending...", 1)
                 self.gpio.sound("success")
                 self.gpio.led("blue")
                 return True
@@ -844,7 +852,9 @@ class UnifiedClient:
             # サーバー送信失敗 → DBに未送信として保存
             record_id = self.save_to_database(card_id, timestamp, sent_to_server=0)
             if record_id:
-                self.set_lcd_message("ローカル保存", 1)
+                # TODO: カタカナ表示は後日対応
+                # self.set_lcd_message("ローカル保存", 1)
+                self.set_lcd_message("Saved Local", 1)
                 self.gpio.sound("failure")
                 # サーバー書き込みできない場合：0.5秒オレンジLED表示
                 self.gpio.led("orange")
@@ -856,7 +866,9 @@ class UnifiedClient:
                 return True
         
         # 保存失敗
-        self.set_lcd_message("保存失敗", 1)
+        # TODO: カタカナ表示は後日対応
+        # self.set_lcd_message("保存失敗", 1)
+        self.set_lcd_message("Save Failed", 1)
         self.gpio.sound("failure")
         self.gpio.led("red")
         return False
@@ -1063,7 +1075,9 @@ class UnifiedClient:
             print("[エラー] カードリーダーが見つかりません")
             print("[ヒント] リーダーを接続してプログラムを再起動してください")
             if self.lcd:
-                self.lcd.show_with_time("リーダーなし")
+                # TODO: カタカナ表示は後日対応
+                # self.lcd.show_with_time("リーダーなし")
+                self.lcd.show_with_time("No Reader")
             self.gpio.led("red")
             return
         
@@ -1117,7 +1131,9 @@ class UnifiedClient:
             
             # LCD表示
             if self.lcd:
-                self.lcd.show_with_time("停止")
+                # TODO: カタカナ表示は後日対応
+                # self.lcd.show_with_time("停止")
+                self.lcd.show_with_time("Stopped")
             
             # GPIOクリーンアップ
             self.gpio.cleanup()
