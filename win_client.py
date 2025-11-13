@@ -264,6 +264,8 @@ class WindowsClientGUI:
         self.running = True
         self.server_connected = False
         self.config = config or {}
+        # リトライ間隔（秒、デフォルト600秒=10分）
+        self.retry_interval = self.config.get('retry_interval', 600)
         
         # GUI作成
         self.root = tk.Tk()
@@ -758,39 +760,51 @@ class WindowsClientGUI:
     
     def retry_worker(self):
         """
-        10分ごとに未送信レコードを再送信
+        設定された間隔で未送信レコードを再送信
+        GUIで設定したリトライ間隔の変更に対応
         """
+        last_retry_time = 0
+        
         while self.running:
-            time.sleep(600)  # 10分待機
+            # リトライ間隔の変更に対応するため、短い間隔でチェック
+            # 1秒ごとにチェックして、設定された間隔が経過したらリトライ実行
+            time.sleep(1)
             
-            records = self.cache.get_pending_records()
-            if records:
-                self.log(f"[リトライ] {len(records)}件の未送信データを再送信します")
+            current_time = time.time()
+            elapsed = current_time - last_retry_time
+            
+            # 設定されたリトライ間隔が経過したらリトライ実行
+            if elapsed >= self.retry_interval:
+                last_retry_time = current_time
                 
-                for record_id, idm, timestamp, terminal_id, retry_count in records:
-                    try:
-                        data = {
-                            'idm': idm,
-                            'timestamp': timestamp,
-                            'terminal_id': terminal_id
-                        }
-                        
-                        response = requests.post(
-                            f"{self.server}/api/attendance",
-                            json=data,
-                            timeout=5
-                        )
-                        
-                        if response.status_code == 200 and response.json().get('status') == 'success':
-                            self.cache.delete_record(record_id)
-                            self.log(f"[リトライ成功] IDm: {idm} (試行回数: {retry_count + 1})")
-                        else:
-                            self.cache.increment_retry_count(record_id)
-                            self.log(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
+                records = self.cache.get_pending_records()
+                if records:
+                    self.log(f"[リトライ] {len(records)}件の未送信データを再送信します（間隔: {self.retry_interval}秒）")
                     
-                    except Exception as e:
-                        self.cache.increment_retry_count(record_id)
-                        self.log(f"[リトライ失敗] IDm: {idm} - {e}")
+                    for record_id, idm, timestamp, terminal_id, retry_count in records:
+                        try:
+                            data = {
+                                'idm': idm,
+                                'timestamp': timestamp,
+                                'terminal_id': terminal_id
+                            }
+                            
+                            response = requests.post(
+                                f"{self.server}/api/attendance",
+                                json=data,
+                                timeout=5
+                            )
+                            
+                            if response.status_code == 200 and response.json().get('status') == 'success':
+                                self.cache.delete_record(record_id)
+                                self.log(f"[リトライ成功] IDm: {idm} (試行回数: {retry_count + 1})")
+                            else:
+                                self.cache.increment_retry_count(record_id)
+                                self.log(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
+                        
+                        except Exception as e:
+                            self.cache.increment_retry_count(record_id)
+                            self.log(f"[リトライ失敗] IDm: {idm} - {e}")
     
     # ========================================================================
     # 終了処理
@@ -825,6 +839,7 @@ def load_config():
     config_file = "client_config.json"
     default_config = {
         "server_url": "http://192.168.1.31:5000",
+        "retry_interval": 600,      # リトライ間隔（秒、デフォルト600秒=10分）
         "beep_settings": {
             "enabled": True,        # 全体の音の有効/無効
             "card_read": False,     # カード読み取り音（ハードウェアブザー付きリーダーの場合はfalse推奨）

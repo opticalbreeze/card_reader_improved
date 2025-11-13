@@ -704,33 +704,45 @@ class UnifiedClient:
     def retry_pending_records(self):
         """
         未送信レコードを定期的にリトライ
+        GUIで設定したリトライ間隔の変更に対応
         """
+        last_retry_time = 0
+        
         while self.running:
-            time.sleep(self.retry_interval)
+            # リトライ間隔の変更に対応するため、短い間隔でチェック
+            # 1秒ごとにチェックして、設定された間隔が経過したらリトライ実行
+            time.sleep(1)
             
             if not self.server_url or not REQUESTS_AVAILABLE:
                 continue
             
-            records = self.database.get_pending_records()
-            if records:
-                print(f"\n[リトライ] {len(records)}件の未送信データを再送信します")
+            current_time = time.time()
+            elapsed = current_time - last_retry_time
+            
+            # 設定されたリトライ間隔が経過したらリトライ実行
+            if elapsed >= self.retry_interval:
+                last_retry_time = current_time
                 
-                for record in records:
-                    record_id, idm, timestamp, terminal_id, retry_count = record
+                records = self.database.get_pending_records()
+                if records:
+                    print(f"\n[リトライ] {len(records)}件の未送信データを再送信します（間隔: {self.retry_interval}秒）")
                     
-                    if self.send_to_server(idm, timestamp):
-                        self.database.mark_as_sent(record_id)
-                        print(f"[リトライ成功] IDm: {idm}")
-                    else:
-                        self.database.increment_retry_count(record_id)
-                        print(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
-                
-                # すべて送信完了したかチェック
-                pending = self.database.get_pending_records()
-                if not pending:
-                    self.gpio.led("green")  # 通常に戻す
-                    self.server_check_running = False
-                    print("[完了] すべての未送信データを送信しました")
+                    for record in records:
+                        record_id, idm, timestamp, terminal_id, retry_count = record
+                        
+                        if self.send_to_server(idm, timestamp):
+                            self.database.mark_as_sent(record_id)
+                            print(f"[リトライ成功] IDm: {idm}")
+                        else:
+                            self.database.increment_retry_count(record_id)
+                            print(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
+                    
+                    # すべて送信完了したかチェック
+                    pending = self.database.get_pending_records()
+                    if not pending:
+                        self.gpio.led("green")  # 通常に戻す
+                        self.server_check_running = False
+                        print("[完了] すべての未送信データを送信しました")
     
     # ========================================================================
     # LCD制御
