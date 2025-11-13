@@ -560,6 +560,13 @@ class UnifiedClient:
         """
         self.server_url = server_url
         self.retry_interval = retry_interval
+        self._init_components()
+        self._init_server()
+        self._init_lcd()
+        self._start_background_threads()
+    
+    def _init_components(self):
+        """基本コンポーネントの初期化"""
         self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
         self.database = LocalDatabase()  # ローカルデータベース
         self.gpio = GPIO_Control()
@@ -568,44 +575,59 @@ class UnifiedClient:
         self.history = {}  # {card_id: last_seen_time}
         self.lock = threading.Lock()
         self.running = True
-        # 端末IDを短縮表示用に変換（MACアドレスの最後の部分）
-        terminal_short = self.terminal_id.split(':')[-2:] if ':' in self.terminal_id else self.terminal_id[-5:]
-        self.current_message = f"カードタッチ {terminal_short}"
         self.server_available = False
         self.server_check_running = False
         
-        # 起動処理
-        self.gpio.sound("startup")
+        # 端末IDを短縮表示用に変換（MACアドレスの最後の部分）
+        terminal_short_list = self.terminal_id.split(':')[-2:] if ':' in self.terminal_id else [self.terminal_id[-5:]]
+        terminal_short = ":".join(terminal_short_list)  # リストを文字列に変換
+        # TODO: カタカナ表示は後日対応
+        # self.current_message = f"カードタッチ {terminal_short}"
+        self.current_message = f"Touch Card {terminal_short}"
         
-        # サーバー接続チェック（起動時）
-        if self.server_url:
-            self.check_server_connection()
-            if not self.server_available:
-                # サーバー接続失敗：3秒LEDエラー表示+ブザー
-                self.gpio.led("red")
-                self.gpio.sound("failure")
-                time.sleep(3)
-                # 10秒ごとの赤LEDフリッカ開始
-                self.server_check_running = True
-                threading.Thread(target=self.server_error_flicker, daemon=True).start()
+        # 起動音
+        self.gpio.sound("startup")
+    
+    def _init_server(self):
+        """サーバー接続チェックとエラー処理"""
+        if not self.server_url:
+            self.gpio.led("green")
+            return
+        
+        self.check_server_connection()
+        if not self.server_available:
+            # サーバー接続失敗：3秒LEDエラー表示+ブザー
+            self.gpio.led("red")
+            self.gpio.sound("failure")
+            time.sleep(3)
+            # 10秒ごとの赤LEDフリッカ開始
+            self.server_check_running = True
+            threading.Thread(target=self.server_error_flicker, daemon=True).start()
         else:
             self.gpio.led("green")
+    
+    def _init_lcd(self):
+        """LCD初期化と表示"""
+        if not self.lcd:
+            return
         
-        if self.lcd:
-            # TODO: カタカナ表示は後日対応（文字コード調査が必要）
-            # self.lcd.show_with_time("キドウチュウ")
-            self.lcd.show_with_time("Starting...")
-            time.sleep(2)
-            # 端末IDを表示（MACアドレスの最後の部分）
-            terminal_display = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
-            # TODO: カタカナ表示は後日対応
-            # self.lcd.show_with_time(f"カードタッチ {terminal_display}")
-            self.lcd.show_with_time(f"Touch Card {terminal_display}")
-        
-        # バックグラウンドスレッド開始
+        # TODO: カタカナ表示は後日対応（文字コード調査が必要）
+        # self.lcd.show_with_time("キドウチュウ")
+        self.lcd.show_with_time("Starting...")
+        time.sleep(2)
+        # 端末IDを表示（MACアドレスの最後の部分）
+        terminal_display = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
+        # TODO: カタカナ表示は後日対応
+        # LCDの2行目にスペース7文字 + 端末IDのみ表示（右寄せ）
+        # self.lcd.show_with_time(f"カードタッチ {terminal_display}")
+        self.lcd.show_with_time(f"       {terminal_display}")
+    
+    def _start_background_threads(self):
+        """バックグラウンドスレッド開始"""
+        # LCD時刻更新スレッド
         threading.Thread(target=self.update_lcd_time, daemon=True).start()
         
-        # サーバー送信リトライスレッド開始
+        # サーバー送信リトライスレッド
         if self.server_url and REQUESTS_AVAILABLE:
             threading.Thread(target=self.retry_pending_records, daemon=True).start()
     
@@ -787,7 +809,9 @@ class UnifiedClient:
                 time.sleep(duration)
                 # 端末IDを短縮表示用に変換
                 terminal_short = ":".join(self.terminal_id.split(':')[-2:]) if ':' in self.terminal_id else self.terminal_id[-5:]
-                self.current_message = f"カードタッチ {terminal_short}"
+                # TODO: カタカナ表示は後日対応
+        # self.current_message = f"カードタッチ {terminal_short}"
+        self.current_message = f"Touch Card {terminal_short}"
             threading.Thread(target=reset, daemon=True).start()
     
     # ========================================================================
@@ -825,13 +849,7 @@ class UnifiedClient:
             bool: 処理成功したかどうか
         """
         timestamp = datetime.now().isoformat()
-        
-        # カード読み込みフィードバック
-        # TODO: カタカナ表示は後日対応
-        # self.set_lcd_message("カード読取", 1)
-        self.set_lcd_message("Reading...", 1)
-        self.gpio.sound("card_read")
-        self.gpio.led("green")
+        self._handle_card_read()
         
         # サーバー送信を優先
         server_sent = False
@@ -839,33 +857,50 @@ class UnifiedClient:
             server_sent = self.send_to_server(card_id, timestamp)
         
         if server_sent:
-            # サーバー送信成功 → DBに送信済みとして保存
-            record_id = self.save_to_database(card_id, timestamp, sent_to_server=1)
-            if record_id:
-                # TODO: カタカナ表示は後日対応
-                # self.set_lcd_message("サーバー送信", 1)
-                self.set_lcd_message("Sending...", 1)
-                self.gpio.sound("success")
-                self.gpio.led("blue")
-                return True
+            return self._handle_server_success(card_id, timestamp)
         else:
-            # サーバー送信失敗 → DBに未送信として保存
-            record_id = self.save_to_database(card_id, timestamp, sent_to_server=0)
-            if record_id:
-                # TODO: カタカナ表示は後日対応
-                # self.set_lcd_message("ローカル保存", 1)
-                self.set_lcd_message("Saved Local", 1)
-                self.gpio.sound("failure")
-                # サーバー書き込みできない場合：0.5秒オレンジLED表示
-                self.gpio.led("orange")
-                time.sleep(0.5)
-                # 未送信データがある場合はオレンジのまま、なければ緑に戻す
-                pending = self.database.get_pending_records()
-                if not pending:
-                    self.gpio.led("green")
-                return True
-        
-        # 保存失敗
+            return self._handle_server_failure(card_id, timestamp)
+    
+    def _handle_card_read(self):
+        """カード読み込み時のフィードバック"""
+        # TODO: カタカナ表示は後日対応
+        # self.set_lcd_message("カード読取", 1)
+        self.set_lcd_message("Reading...", 1)
+        self.gpio.sound("card_read")
+        self.gpio.led("green")
+    
+    def _handle_server_success(self, card_id, timestamp):
+        """サーバー送信成功時の処理"""
+        record_id = self.save_to_database(card_id, timestamp, sent_to_server=1)
+        if record_id:
+            # TODO: カタカナ表示は後日対応
+            # self.set_lcd_message("サーバー送信", 1)
+            self.set_lcd_message("Sending...", 1)
+            self.gpio.sound("success")
+            self.gpio.led("blue")
+            return True
+        return self._handle_save_failure()
+    
+    def _handle_server_failure(self, card_id, timestamp):
+        """サーバー送信失敗時の処理"""
+        record_id = self.save_to_database(card_id, timestamp, sent_to_server=0)
+        if record_id:
+            # TODO: カタカナ表示は後日対応
+            # self.set_lcd_message("ローカル保存", 1)
+            self.set_lcd_message("Saved Local", 1)
+            self.gpio.sound("failure")
+            # サーバー書き込みできない場合：0.5秒オレンジLED表示
+            self.gpio.led("orange")
+            time.sleep(0.5)
+            # 未送信データがある場合はオレンジのまま、なければ緑に戻す
+            pending = self.database.get_pending_records()
+            if not pending:
+                self.gpio.led("green")
+            return True
+        return self._handle_save_failure()
+    
+    def _handle_save_failure(self):
+        """保存失敗時の処理"""
         # TODO: カタカナ表示は後日対応
         # self.set_lcd_message("保存失敗", 1)
         self.set_lcd_message("Save Failed", 1)
