@@ -564,6 +564,7 @@ class UnifiedClient:
         self.lcd_settings = lcd_settings or {}
         self._init_components()
         self._led_startup_demo()  # 起動時LEDデモ
+        # LEDデモ後、確実に通常状態（緑）に戻す
         self._init_server()
         self._init_lcd()
         self._start_background_threads()
@@ -618,7 +619,9 @@ class UnifiedClient:
         time.sleep(0.5)
         self.gpio.led("green")
         time.sleep(0.5)
+        # デモ後は確実に消灯（_init_server()で緑に設定される）
         self.gpio.led("off")
+        time.sleep(0.1)  # 確実に消灯するための短い待機
     
     def _init_lcd(self):
         """LCD初期化と表示"""
