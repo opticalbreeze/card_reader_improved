@@ -1,12 +1,11 @@
 @echo off
 chcp 65001 >nul
 echo ======================================
-echo   ダミーデータ生成
+echo   打刻システム - 設定画面
 echo ======================================
 echo.
 
-python generate_dummy_data.py
+python config.py
 
-echo.
 pause
 

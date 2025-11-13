@@ -7,7 +7,7 @@ echo.
 
 cd /d "%~dp0"
 
-python client_card_reader_windows_gui.py
+python win_client.py
 
 pause
 

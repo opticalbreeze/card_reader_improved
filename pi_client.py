@@ -32,7 +32,7 @@ except ImportError:
 
 # LCD制御
 try:
-    from lcd_i2c_improved import LCD_I2C
+    from lcd_i2c import LCD_I2C
     LCD_AVAILABLE = True
 except ImportError:
     try:

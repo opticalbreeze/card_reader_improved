@@ -290,9 +290,9 @@ class ConfigGUI:
             # クライアントを起動
             try:
                 if sys.platform == "win32":
-                    subprocess.Popen(["python", "client_card_reader.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    subprocess.Popen(["python", "win_client.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
-                    subprocess.Popen(["python3", "client_card_reader.py"])
+                    subprocess.Popen(["python3", "pi_client.py"])
                 
                 messagebox.showinfo("起動", f"クライアントを起動しました\n\nサーバーURL: {self.config['server_url']}")
             except Exception as e:
