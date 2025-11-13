@@ -550,17 +550,20 @@ class UnifiedClient:
     オフライン優先：ローカルDBに保存 → サーバーが利用可能な時に自動送信
     """
     
-    def __init__(self, server_url=None, retry_interval=600):
+    def __init__(self, server_url=None, retry_interval=600, lcd_settings=None):
         """
         ハイブリッド版：サーバーURLはオプション
         
         Args:
             server_url (str): サーバーURL（Noneの場合はサーバー送信なし）
             retry_interval (int): リトライ間隔（秒、デフォルト600秒=10分）
+            lcd_settings (dict): LCD設定（i2c_addr, i2c_bus, backlight）
         """
         self.server_url = server_url
         self.retry_interval = retry_interval
+        self.lcd_settings = lcd_settings or {}
         self._init_components()
+        self._led_startup_demo()  # 起動時LEDデモ
         self._init_server()
         self._init_lcd()
         self._start_background_threads()
@@ -570,7 +573,11 @@ class UnifiedClient:
         self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
         self.database = LocalDatabase()  # ローカルデータベース
         self.gpio = GPIO_Control()
-        self.lcd = LCD_I2C() if LCD_AVAILABLE else None
+        # LCD設定を読み込んで初期化
+        lcd_addr = self.lcd_settings.get('i2c_addr', 0x27)
+        lcd_bus = self.lcd_settings.get('i2c_bus', 1)
+        lcd_backlight = self.lcd_settings.get('backlight', True)
+        self.lcd = LCD_I2C(addr=lcd_addr, bus=lcd_bus, backlight=lcd_backlight) if LCD_AVAILABLE else None
         self.count = 0
         self.history = {}  # {card_id: last_seen_time}
         self.lock = threading.Lock()
@@ -602,6 +609,16 @@ class UnifiedClient:
             threading.Thread(target=self.server_error_flicker, daemon=True).start()
         else:
             self.gpio.led("green")
+    
+    def _led_startup_demo(self):
+        """起動時LEDデモ（赤→青→緑を順番に点灯）"""
+        self.gpio.led("red")
+        time.sleep(0.5)
+        self.gpio.led("blue")
+        time.sleep(0.5)
+        self.gpio.led("green")
+        time.sleep(0.5)
+        self.gpio.led("off")
     
     def _init_lcd(self):
         """LCD初期化と表示"""
@@ -1176,18 +1193,34 @@ def load_config():
     設定ファイルを読み込む
     
     Returns:
-        dict: 設定辞書（server_url, retry_intervalなど）
+        dict: 設定辞書（server_url, retry_interval, lcd_settingsなど）
     """
     config_path = Path("client_config.json")
+    default_config = {
+        "lcd_settings": {
+            "i2c_addr": 0x27,      # LCD I2Cアドレス（0x27または0x3F）
+            "i2c_bus": 1,           # I2Cバス番号（Raspberry Pi 3/4は1、初期モデルは0）
+            "backlight": True       # バックライトON/OFF
+        }
+    }
+    
     if config_path.exists():
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+                # デフォルト設定をマージ（設定ファイルにない項目はデフォルト値を使用）
+                if 'lcd_settings' not in config:
+                    config['lcd_settings'] = default_config['lcd_settings']
+                else:
+                    # 部分的な設定がある場合、デフォルトとマージ
+                    for key, value in default_config['lcd_settings'].items():
+                        if key not in config['lcd_settings']:
+                            config['lcd_settings'][key] = value
                 return config
         except Exception as e:
             print(f"[警告] 設定ファイル読み込みエラー: {e}")
-            return {}
-    return {}
+            return default_config
+    return default_config
 
 
 # ============================================================================
@@ -1373,6 +1406,7 @@ def main():
     config = load_config()
     server_url = config.get('server_url')
     retry_interval = config.get('retry_interval', 600)
+    lcd_settings = config.get('lcd_settings', {})
     
     print(f"端末ID: {get_mac_address()}")
     print(f"データベース: attendance.db（ローカル保存）")
@@ -1380,12 +1414,14 @@ def main():
         print(f"サーバーURL: {server_url}")
     else:
         print("サーバーURL: 未設定（ローカルのみ）")
+    if lcd_settings:
+        print(f"LCD設定: I2Cアドレス=0x{lcd_settings.get('i2c_addr', 0x27):02X}, バス={lcd_settings.get('i2c_bus', 1)}, バックライト={'ON' if lcd_settings.get('backlight', True) else 'OFF'}")
     print("="*70)
     print()
     
     # クライアント起動
     try:
-        client = UnifiedClient(server_url=server_url, retry_interval=retry_interval)
+        client = UnifiedClient(server_url=server_url, retry_interval=retry_interval, lcd_settings=lcd_settings)
         
         # GUI起動（VNC用）- メインスレッドで実行
         if TKINTER_AVAILABLE:
