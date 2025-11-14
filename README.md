@@ -176,7 +176,11 @@ pip3 install -r requirements_unified.txt
 
 ## 📖 詳細ドキュメント
 
-- [セットアップガイド](SETUP_GUIDE.md) - 詳細なセットアップ手順
+- [セットアップガイド](docs/SETUP_GUIDE.md) - Windows/Raspberry Piのセットアップ手順
+- [自動起動設定](docs/AUTOSTART_GUIDE.md) - 自動起動の設定方法
+- [更新ガイド](docs/UPDATE_GUIDE.md) - 最新版への更新方法
+- [トラブルシューティング](docs/TROUBLESHOOTING.md) - よくある問題と解決方法
+- [Git操作ガイド](docs/GIT_GUIDE.md) - GitHubへのpush/pull方法
 - [システム概要](SYSTEM_OVERVIEW.md) - システム全体の詳細説明
 - [勤怠システム詳細](README_ATTENDANCE.md) - 勤怠管理機能の詳細
 

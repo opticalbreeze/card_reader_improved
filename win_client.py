@@ -11,15 +11,38 @@ Windows版GUIクライアント（改善版）
 
 import time
 import sys
-import json
 import sqlite3
-import uuid
 import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext
+
+# 共通モジュールをインポート
+from common_utils import (
+    get_mac_address,
+    load_config,
+    check_server_connection,
+    send_attendance_to_server,
+    get_pcsc_commands,
+    is_valid_card_id
+)
+from constants import (
+    DEFAULT_RETRY_INTERVAL,
+    CARD_DUPLICATE_THRESHOLD,
+    CARD_DETECTION_SLEEP,
+    PCSC_POLL_INTERVAL,
+    DB_PATH_CACHE,
+    PENDING_DATA_MIN_AGE,
+    RETRY_CHECK_INTERVAL,
+    TIMEOUT_HEALTH_CHECK,
+    TIMEOUT_SERVER_REQUEST,
+    SERVER_CHECK_INTERVAL,
+    PCSC_SUCCESS_SW1,
+    PCSC_SUCCESS_SW2,
+    INVALID_CARD_IDS
+)
 
 # nfcpy
 try:
@@ -44,19 +67,7 @@ except ImportError:
     WINSOUND_AVAILABLE = False
 
 
-# ============================================================================
-# ユーティリティ関数
-# ============================================================================
-
-def get_mac_address():
-    """
-    端末のMACアドレスを取得
-    
-    Returns:
-        str: MACアドレス（例: "AA:BB:CC:DD:EE:FF"）
-    """
-    mac = uuid.UUID(int=uuid.getnode()).hex[-12:]
-    return ":".join([mac[i:i+2] for i in range(0, 12, 2)]).upper()
+# get_mac_address() は common_utils からインポート済み
 
 
 # 音パターン（周波数Hz, 時間ms）
@@ -101,46 +112,7 @@ def beep(pattern, config=None):
             pass
 
 
-def get_reader_commands(reader_name):
-    """
-    リーダー名に応じてPC/SCコマンドセットを返す
-    
-    Args:
-        reader_name (str): リーダー名
-    
-    Returns:
-        list: APDUコマンドのリスト
-    """
-    name = str(reader_name).upper()
-    
-    # Sony/PaSoRi 系（FeliCa対応）
-    if any(k in name for k in ["SONY", "RC-S", "PASORI"]):
-        return [
-            [0xFF, 0xCA, 0x00, 0x00, 0x00],  # UID（可変長）
-            [0xFF, 0xCA, 0x00, 0x00, 0x04],  # 4バイト UID
-            [0xFF, 0xCA, 0x00, 0x00, 0x07],  # 7バイト UID
-            [0xFF, 0xB0, 0x00, 0x00, 0x09, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00],  # FeliCa IDm
-            [0xFF, 0xCA, 0x01, 0x00, 0x00],  # Get Data
-        ]
-    
-    # Circle CIR315 系
-    if any(k in name for k in ["CIRCLE", "CIR315", "CIR-315"]):
-        return [
-            [0xFF, 0xCA, 0x00, 0x00, 0x00],
-            [0xFF, 0xCA, 0x00, 0x00, 0x04],
-            [0xFF, 0xCA, 0x01, 0x00, 0x00],
-            [0xFF, 0xB0, 0x00, 0x00, 0x09, 0x06, 0x00, 0xFF, 0xFF, 0x01, 0x00],
-            [0xFF, 0xCA, 0x00, 0x00, 0x07],
-        ]
-    
-    # 汎用リーダー
-    return [
-        [0xFF, 0xCA, 0x00, 0x00, 0x00],  # UID（可変長）
-        [0xFF, 0xCA, 0x00, 0x00, 0x04],  # 4バイト UID
-        [0xFF, 0xCA, 0x00, 0x00, 0x07],  # 7バイト UID
-        [0xFF, 0xCA, 0x00, 0x00, 0x0A],  # 10バイト UID
-        [0xFF, 0xCA, 0x01, 0x00, 0x00],  # Get Data
-    ]
+# get_pcsc_commands() は common_utils からインポート済み
 
 
 # ============================================================================
@@ -153,12 +125,12 @@ class LocalCache:
     SQLiteを使用して未送信データを保持し、定期的に再送信を試みる
     """
     
-    def __init__(self, db_path="local_cache.db"):
+    def __init__(self, db_path=None):
         """
         Args:
-            db_path (str): データベースファイルのパス
+            db_path (str): データベースファイルのパス（Noneの場合はデフォルト）
         """
-        self.db_path = db_path
+        self.db_path = db_path or DB_PATH_CACHE
         self._init_database()
     
     def _init_database(self):
@@ -202,10 +174,11 @@ class LocalCache:
             list: (id, idm, timestamp, terminal_id, retry_count) のタプルのリスト
         """
         conn = sqlite3.connect(self.db_path)
-        ten_minutes_ago = (datetime.now() - timedelta(minutes=10)).isoformat()
+        min_age_seconds = PENDING_DATA_MIN_AGE
+        min_age_ago = (datetime.now() - timedelta(seconds=min_age_seconds)).isoformat()
         cursor = conn.execute(
             "SELECT id, idm, timestamp, terminal_id, retry_count FROM pending_records WHERE created_at <= ?",
-            (ten_minutes_ago,)
+            (min_age_ago,)
         )
         records = cursor.fetchall()
         conn.close()
@@ -265,7 +238,7 @@ class WindowsClientGUI:
         self.server_connected = False
         self.config = config or {}
         # リトライ間隔（秒、デフォルト600秒=10分）
-        self.retry_interval = self.config.get('retry_interval', 600)
+        self.retry_interval = self.config.get('retry_interval', DEFAULT_RETRY_INTERVAL)
         # リーダー監視フラグ
         self.reader_threads = []
         self.reader_check_interval = 30  # リーダー再検出間隔（秒）
@@ -458,7 +431,7 @@ class WindowsClientGUI:
         
         while self.running:
             try:
-                response = requests.get(f"{self.server}/api/health", timeout=5)
+                response = requests.get(f"{self.server}/api/health", timeout=TIMEOUT_HEALTH_CHECK)
                 if response.status_code == 200:
                     self.server_connected = True
                     self.server_label.config(text="接続OK", foreground="green")
@@ -492,7 +465,7 @@ class WindowsClientGUI:
                 self.server_label.config(text="接続NG", foreground="red")
                 self.log(f"[サーバー] エラー: {e}")
             
-            time.sleep(3600)  # 1時間ごとに確認
+            time.sleep(SERVER_CHECK_INTERVAL)
     
     # ========================================================================
     # リーダー監視
@@ -730,7 +703,7 @@ class WindowsClientGUI:
                     last_id = None
                 
                 # 短いスリープで応答性を向上
-                time.sleep(0.05)
+                time.sleep(CARD_DETECTION_SLEEP)
         
         finally:
             # 終了時にContactlessFrontendをクローズ
@@ -809,14 +782,13 @@ class WindowsClientGUI:
                     try:
                         response, sw1, sw2 = connection.transmit(cmd)
                         
-                        # 成功応答（90 00）かつ有効なデータがある場合
-                        if sw1 == 0x90 and sw2 == 0x00 and len(response) >= 4:
+                        # 成功応答かつ有効なデータがある場合
+                        if sw1 == PCSC_SUCCESS_SW1 and sw2 == PCSC_SUCCESS_SW2 and len(response) >= 4:
                             uid_len = min(len(response), 16)
                             card_id = ''.join([f'{b:02X}' for b in response[:uid_len]])
                             
                             # 無効なIDをフィルタリング
-                            invalid_ids = ["00000000", "FFFFFFFF", "0000000000000000"]
-                            if card_id not in invalid_ids and len(card_id) >= 8:
+                            if is_valid_card_id(card_id):
                                 break
                     except Exception:
                         continue
@@ -844,7 +816,7 @@ class WindowsClientGUI:
             if time.time() - last_time > 2:
                 last_id = None
             
-            time.sleep(0.3)
+            time.sleep(PCSC_POLL_INTERVAL)
     
     # ========================================================================
     # カード処理
@@ -861,8 +833,8 @@ class WindowsClientGUI:
         with self.lock:
             now = time.time()
             
-            # 重複チェック（2秒以内の同じカードは無視）
-            if card_id in self.history and now - self.history[card_id] < 2.0:
+            # 重複チェック
+            if card_id in self.history and now - self.history[card_id] < CARD_DUPLICATE_THRESHOLD:
                 return
             
             self.history[card_id] = now
@@ -880,55 +852,22 @@ class WindowsClientGUI:
             
             # サーバー送信
             ts = datetime.now().isoformat()
-            data = {
-                'idm': card_id,
-                'timestamp': ts,
-                'terminal_id': self.terminal
-            }
             
             try:
-                response = requests.post(
-                    f"{self.server}/api/attendance", 
-                    json=data, 
-                    timeout=5
+                # 共通のサーバー送信関数を使用
+                success, error_msg = send_attendance_to_server(
+                    card_id, ts, self.terminal, self.server
                 )
                 
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get('status') == 'success':
-                        self.log(f"[送信成功] {result.get('message', 'サーバーに記録')}")
-                        self.update_message("サーバーに記録しました", "green", 2)
-                        beep("success", self.config)
-                    else:
-                        # サーバーからエラーレスポンスだが、重複の場合は成功として扱う
-                        message = result.get('message', '').lower()
-                        if '重複' in message or 'duplicate' in message or '既に' in message:
-                            self.log(f"[送信済み] 重複データのためスキップ: {result.get('message')}")
-                            self.update_message("既に記録済みです", "green", 2)
-                            beep("success", self.config)
-                        else:
-                            self.log(f"[送信失敗] サーバーエラー: {result.get('message')}")
-                            self.cache.save_record(card_id, ts, self.terminal)
-                            self.update_message("ローカルに保存しました", "orange", 2)
-                            beep("fail", self.config)
+                if success:
+                    self.log(f"[送信成功] サーバーに記録")
+                    self.update_message("サーバーに記録しました", "green", 2)
+                    beep("success", self.config)
                 else:
-                    # HTTPエラー
-                    self.log(f"[送信失敗] HTTP {response.status_code} - ローカルに保存")
+                    self.log(f"[送信失敗] {error_msg} - ローカルに保存")
                     self.cache.save_record(card_id, ts, self.terminal)
                     self.update_message("ローカルに保存しました", "orange", 2)
                     beep("fail", self.config)
-            
-            except requests.exceptions.ConnectionError:
-                self.log(f"[送信失敗] サーバー接続エラー - ローカルに保存")
-                self.cache.save_record(card_id, ts, self.terminal)
-                self.update_message("ローカルに保存しました", "orange", 2)
-                beep("fail", self.config)
-            
-            except requests.exceptions.Timeout:
-                self.log(f"[送信失敗] タイムアウト - ローカルに保存")
-                self.cache.save_record(card_id, ts, self.terminal)
-                self.update_message("ローカルに保存しました", "orange", 2)
-                beep("fail", self.config)
             
             except Exception as e:
                 self.log(f"[送信失敗] エラー: {e} - ローカルに保存")
@@ -949,8 +888,7 @@ class WindowsClientGUI:
         
         while self.running:
             # リトライ間隔の変更に対応するため、短い間隔でチェック
-            # 1秒ごとにチェックして、設定された間隔が経過したらリトライ実行
-            time.sleep(1)
+            time.sleep(RETRY_CHECK_INTERVAL)
             
             current_time = time.time()
             elapsed = current_time - last_retry_time
@@ -974,7 +912,7 @@ class WindowsClientGUI:
                             response = requests.post(
                                 f"{self.server}/api/attendance",
                                 json=data,
-                                timeout=5
+                                timeout=TIMEOUT_SERVER_REQUEST
                             )
                             
                             if response.status_code == 200:
@@ -1021,42 +959,7 @@ class WindowsClientGUI:
 # 設定ファイル管理
 # ============================================================================
 
-def load_config():
-    """
-    設定ファイルを読み込み
-    ファイルが存在しない場合はデフォルト設定で作成
-    
-    Returns:
-        dict: 設定辞書
-    """
-    config_file = "client_config.json"
-    default_config = {
-        "server_url": "http://192.168.1.31:5000",
-        "retry_interval": 600,      # リトライ間隔（秒、デフォルト600秒=10分）
-        "beep_settings": {
-            "enabled": True,        # 全体の音の有効/無効
-            "card_read": False,     # カード読み取り音（ハードウェアブザー付きリーダーの場合はfalse推奨）
-            "success": True,        # 送信成功音
-            "fail": True            # 送信失敗音
-        }
-    }
-    
-    config_path = Path(config_file)
-    
-    if config_path.exists():
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[警告] 設定ファイル読み込みエラー: {e}")
-            print("[情報] デフォルト設定を使用します")
-            return default_config
-    else:
-        # 設定ファイルを作成
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(default_config, f, indent=2, ensure_ascii=False)
-        print(f"[情報] 設定ファイルを作成しました: {config_file}")
-        return default_config
+# load_config() は common_utils からインポート済み
 
 
 # ============================================================================

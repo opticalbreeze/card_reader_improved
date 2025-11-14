@@ -11,28 +11,45 @@
 
 import time
 import sys
-import json
 import sqlite3
-import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 import threading
-import os
 
-# Windows環境での文字化け対策: UTF-8出力を強制
-if sys.platform == 'win32':
-    # 標準出力・標準エラー出力のエンコーディングをUTF-8に設定
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-    if hasattr(sys.stderr, 'reconfigure'):
-        sys.stderr.reconfigure(encoding='utf-8')
-    # コンソールのコードページをUTF-8に設定
-    try:
-        os.system('chcp 65001 >nul 2>&1')
-    except:
-        pass
-    # 環境変数でUTF-8を強制
-    os.environ['PYTHONIOENCODING'] = 'utf-8'
+# 共通モジュールをインポート
+from common_utils import (
+    get_mac_address,
+    load_config,
+    check_server_connection,
+    send_attendance_to_server,
+    setup_windows_encoding,
+    get_pcsc_commands,
+    is_valid_card_id
+)
+from constants import (
+    DEFAULT_RETRY_INTERVAL,
+    CARD_DUPLICATE_THRESHOLD,
+    CARD_DETECTION_SLEEP,
+    PCSC_POLL_INTERVAL,
+    READER_DETECTION_MAX_WAIT,
+    READER_DETECTION_CHECK_INTERVAL,
+    DB_PATH_ATTENDANCE,
+    DB_PENDING_LIMIT,
+    TIMEOUT_CARD_DETECTION,
+    MESSAGE_TOUCH_CARD,
+    MESSAGE_READING,
+    MESSAGE_SENDING,
+    MESSAGE_SAVED_LOCAL,
+    MESSAGE_SAVE_FAILED,
+    MESSAGE_STARTING,
+    MESSAGE_STOPPED,
+    MESSAGE_WAIT_READER,
+    MESSAGE_NO_READER,
+    RETRY_CHECK_INTERVAL
+)
+
+# Windows環境での文字化け対策
+setup_windows_encoding()
 
 # HTTP通信（サーバー送信用）
 try:
@@ -106,19 +123,7 @@ except ImportError:
     }
 
 
-# ============================================================================
-# ユーティリティ関数
-# ============================================================================
-
-def get_mac_address():
-    """
-    端末のMACアドレスを取得
-    
-    Returns:
-        str: MACアドレス（例: "AA:BB:CC:DD:EE:FF"）
-    """
-    mac = uuid.UUID(int=uuid.getnode()).hex[-12:]
-    return ":".join([mac[i:i+2] for i in range(0, 12, 2)]).upper()
+# get_mac_address() は common_utils からインポート済み
 
 
 # ============================================================================
@@ -287,7 +292,7 @@ class LocalDatabase:
     サーバー不要で動作可能
     """
     
-    def __init__(self, db_path="attendance.db"):
+    def __init__(self, db_path=None):
         """
         Args:
             db_path (str): データベースファイルのパス
@@ -372,16 +377,18 @@ class LocalDatabase:
         print(f"[保存完了] ID:{record_id} | IDm:{idm} | 端末:{terminal_id} | 時刻:{timestamp}")
         return record_id
     
-    def get_pending_records(self, limit=50):
+    def get_pending_records(self, limit=None):
         """
         未送信のレコードを取得
         
         Args:
-            limit (int): 取得件数の上限
+            limit (int): 取得件数の上限（Noneの場合はデフォルト値）
         
         Returns:
             list: (id, idm, timestamp, terminal_id, retry_count) のタプルのリスト
         """
+        if limit is None:
+            limit = DB_PENDING_LIMIT
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -566,17 +573,19 @@ class UnifiedClient:
     オフライン優先：ローカルDBに保存 → サーバーが利用可能な時に自動送信
     """
     
-    def __init__(self, server_url=None, retry_interval=600, lcd_settings=None):
+    def __init__(self, server_url=None, retry_interval=None, lcd_settings=None):
         """
         ハイブリッド版：サーバーURLはオプション
         
         Args:
-            server_url (str): サーバーURL（Noneの場合はサーバー送信なし）
-            retry_interval (int): リトライ間隔（秒、デフォルト600秒=10分）
+            server_url (str): サーバーURL（Noneの場合は設定ファイルから読み込み）
+            retry_interval (int): リトライ間隔（秒、Noneの場合はデフォルト値）
             lcd_settings (dict): LCD設定（i2c_addr, i2c_bus, backlight）
         """
-        self.server_url = server_url
-        self.retry_interval = retry_interval
+        # 設定ファイルから読み込み
+        config = load_config()
+        self.server_url = server_url or config.get('server_url')
+        self.retry_interval = retry_interval or config.get('retry_interval', DEFAULT_RETRY_INTERVAL)
         self.lcd_settings = lcd_settings or {}
         self._init_components()
         self._led_startup_demo()  # 起動時LEDデモ
@@ -603,9 +612,7 @@ class UnifiedClient:
             self.server_available = False
             self.server_check_running = False
             
-            # TODO: カタカナ表示は後日対応
-            # self.current_message = f"カードタッチ {terminal_short}"
-            self.current_message = "Touch Card"
+            self.current_message = MESSAGE_TOUCH_CARD
             
             # 起動音
             self.gpio.sound("startup")
@@ -652,13 +659,9 @@ class UnifiedClient:
         if not self.lcd:
             return
         
-        # TODO: カタカナ表示は後日対応（文字コード調査が必要）
-        # self.lcd.show_with_time("キドウチュウ")
-        self.lcd.show_with_time("Starting...")
+        self.lcd.show_with_time(MESSAGE_STARTING)
         time.sleep(2)
-        # TODO: カタカナ表示は後日対応
-        # self.lcd.show_with_time(f"カードタッチ {terminal_display}")
-        self.lcd.show_with_time("Touch Card")
+        self.lcd.show_with_time(MESSAGE_TOUCH_CARD)
     
     def _start_background_threads(self):
         """バックグラウンドスレッド開始"""
@@ -716,16 +719,8 @@ class UnifiedClient:
             self.server_available = False
             return False
         
-        try:
-            response = requests.get(f"{self.server_url}/api/health", timeout=3)
-            if response.status_code == 200:
-                self.server_available = True
-                return True
-        except:
-            pass
-        
-        self.server_available = False
-        return False
+        self.server_available = check_server_connection(self.server_url)
+        return self.server_available
     
     def send_to_server(self, idm, timestamp):
         """
@@ -741,47 +736,19 @@ class UnifiedClient:
         if not self.server_url or not REQUESTS_AVAILABLE:
             return False
         
-        data = {
-            'idm': idm,
-            'timestamp': timestamp,
-            'terminal_id': self.terminal_id
-        }
+        success, error_msg = send_attendance_to_server(
+            idm, timestamp, self.terminal_id, self.server_url
+        )
         
-        try:
-            response = requests.post(
-                f"{self.server_url}/api/attendance",
-                json=data,
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('status') == 'success':
-                    print(f"[送信成功] {result.get('message', 'サーバーに記録')}")
-                    self.server_available = True
-                    return True
-                else:
-                    # サーバーエラーだが、重複データの場合は成功として扱う
-                    message = result.get('message', '').lower()
-                    if '重複' in message or 'duplicate' in message or '既に' in message:
-                        print(f"[送信済み] 重複データのためスキップ: {result.get('message')}")
-                        return True
-                    print(f"[送信失敗] サーバーエラー: {result.get('message')}")
-                    return False
+        if success:
+            self.server_available = True
+            if error_msg:
+                print(f"[送信済み] 重複データのためスキップ")
             else:
-                print(f"[送信失敗] HTTP {response.status_code}")
-                return False
-                
-        except requests.exceptions.ConnectionError:
-            print(f"[送信失敗] サーバー接続エラー: {self.server_url}")
-            self.server_available = False
-            return False
-        except requests.exceptions.Timeout:
-            print(f"[送信失敗] タイムアウト（5秒）")
-            self.server_available = False
-            return False
-        except Exception as e:
-            print(f"[送信失敗] 予期しないエラー: {e}")
+                print(f"[送信成功] サーバーに記録")
+            return True
+        else:
+            print(f"[送信失敗] {error_msg}")
             self.server_available = False
             return False
     
@@ -811,8 +778,7 @@ class UnifiedClient:
         
         while self.running:
             # リトライ間隔の変更に対応するため、短い間隔でチェック
-            # 1秒ごとにチェックして、設定された間隔が経過したらリトライ実行
-            time.sleep(1)
+            time.sleep(RETRY_CHECK_INTERVAL)
             
             if not self.server_url or not REQUESTS_AVAILABLE:
                 continue
@@ -882,9 +848,7 @@ class UnifiedClient:
         if duration > 0:
             def reset():
                 time.sleep(duration)
-                # TODO: カタカナ表示は後日対応
-                # self.current_message = f"カードタッチ {terminal_short}"
-                self.current_message = "Touch Card"
+                self.current_message = MESSAGE_TOUCH_CARD
             
             threading.Thread(target=reset, daemon=True).start()
     
@@ -937,9 +901,7 @@ class UnifiedClient:
     
     def _handle_card_read(self):
         """カード読み込み時のフィードバック"""
-        # TODO: カタカナ表示は後日対応
-        # self.set_lcd_message("カード読取", 1)
-        self.set_lcd_message("Reading...", 1)
+        self.set_lcd_message(MESSAGE_READING, 1)
         self.gpio.sound("card_read")
         self.gpio.led("green")
     
@@ -947,9 +909,7 @@ class UnifiedClient:
         """サーバー送信成功時の処理"""
         record_id = self.save_to_database(card_id, timestamp, sent_to_server=1)
         if record_id:
-            # TODO: カタカナ表示は後日対応
-            # self.set_lcd_message("サーバー送信", 1)
-            self.set_lcd_message("Sending...", 1)
+            self.set_lcd_message(MESSAGE_SENDING, 1)
             self.gpio.sound("success")
             self.gpio.led("blue")
             return True
@@ -959,9 +919,7 @@ class UnifiedClient:
         """サーバー送信失敗時の処理"""
         record_id = self.save_to_database(card_id, timestamp, sent_to_server=0)
         if record_id:
-            # TODO: カタカナ表示は後日対応
-            # self.set_lcd_message("ローカル保存", 1)
-            self.set_lcd_message("Saved Local", 1)
+            self.set_lcd_message(MESSAGE_SAVED_LOCAL, 1)
             self.gpio.sound("failure")
             # サーバー書き込みできない場合：0.5秒オレンジLED表示
             self.gpio.led("orange")
@@ -975,9 +933,7 @@ class UnifiedClient:
     
     def _handle_save_failure(self):
         """保存失敗時の処理"""
-        # TODO: カタカナ表示は後日対応
-        # self.set_lcd_message("保存失敗", 1)
-        self.set_lcd_message("Save Failed", 1)
+        self.set_lcd_message(MESSAGE_SAVE_FAILED, 1)
         self.gpio.sound("failure")
         self.gpio.led("red")
         return False
@@ -1022,8 +978,8 @@ class UnifiedClient:
                         
                         if card_id and card_id != last_id:
                             now = time.time()
-                            # 重複チェック（2秒以内は無視）
-                            if card_id not in self.history or now - self.history[card_id] >= 2.0:
+                    # 重複チェック
+                    if card_id not in self.history or now - self.history[card_id] >= CARD_DUPLICATE_THRESHOLD:
                                 self.history[card_id] = now
                                 self.count += 1
                                 
@@ -1041,7 +997,7 @@ class UnifiedClient:
                     pass
                 
                 # 短いスリープで応答性を向上
-                time.sleep(0.05)
+                time.sleep(CARD_DETECTION_SLEEP)
         
         finally:
             # 終了時にContactlessFrontendをクローズ
@@ -1068,11 +1024,7 @@ class UnifiedClient:
                 
                 # 複数のコマンドを試してカードIDを取得
                 card_id = None
-                commands = [
-                    [0xFF, 0xCA, 0x00, 0x00, 0x00],  # UID（可変長）
-                    [0xFF, 0xCA, 0x00, 0x00, 0x04],  # 4バイト UID
-                    [0xFF, 0xCA, 0x00, 0x00, 0x07]   # 7バイト UID
-                ]
+                commands = get_pcsc_commands(str(reader))
                 
                 for cmd in commands:
                     try:
@@ -1088,8 +1040,8 @@ class UnifiedClient:
                 
                 if card_id and card_id != last_id:
                     now = time.time()
-                    # 重複チェック（2秒以内は無視）
-                    if card_id not in self.history or now - self.history[card_id] >= 2.0:
+                    # 重複チェック
+                    if card_id not in self.history or now - self.history[card_id] >= CARD_DUPLICATE_THRESHOLD:
                         self.history[card_id] = now
                         self.count += 1
                         
@@ -1107,7 +1059,7 @@ class UnifiedClient:
                 # その他のエラーは無視
                 pass
             
-            time.sleep(0.3)
+            time.sleep(PCSC_POLL_INTERVAL)
     
     # ========================================================================
     # メイン処理
@@ -1184,13 +1136,13 @@ class UnifiedClient:
             print("[警告] カードリーダーが見つかりません")
             print("[待機] リーダーの認識を待機中...（最大60秒、30秒間隔で再検出）")
             if self.lcd:
-                self.lcd.show_with_time("Wait Reader")
+                self.lcd.show_with_time(MESSAGE_WAIT_READER)
             if self.gpio.available:
                 self.gpio.led("red")
             
-            # 最大60秒間、30秒間隔で再検出を試みる
-            max_wait_seconds = 60
-            check_interval = 30
+            # 最大待機時間とチェック間隔
+            max_wait_seconds = READER_DETECTION_MAX_WAIT
+            check_interval = READER_DETECTION_CHECK_INTERVAL
             waited_seconds = 0
             
             while waited_seconds < max_wait_seconds and self.running:
@@ -1246,7 +1198,7 @@ class UnifiedClient:
                 print("[エラー] カードリーダーが見つかりません（60秒待機後も検出失敗）")
                 print("[情報] プログラムを終了します。リーダーを接続してサービスを再起動してください。")
                 if self.lcd:
-                    self.lcd.show_with_time("No Reader")
+                    self.lcd.show_with_time(MESSAGE_NO_READER)
                 if self.gpio.available:
                     self.gpio.led("red")
                 # 自動起動時の無限ループを防ぐため、正常終了（exit code 0）
@@ -1305,9 +1257,7 @@ class UnifiedClient:
             
             # LCD表示
             if self.lcd:
-                # TODO: カタカナ表示は後日対応
-                # self.lcd.show_with_time("停止")
-                self.lcd.show_with_time("Stopped")
+                self.lcd.show_with_time(MESSAGE_STOPPED)
             
             # GPIOクリーンアップ
             self.gpio.cleanup()
@@ -1317,39 +1267,7 @@ class UnifiedClient:
 # 設定ファイル管理
 # ============================================================================
 
-def load_config():
-    """
-    設定ファイルを読み込む
-    
-    Returns:
-        dict: 設定辞書（server_url, retry_interval, lcd_settingsなど）
-    """
-    config_path = Path("client_config.json")
-    default_config = {
-        "lcd_settings": {
-            "i2c_addr": 0x27,      # LCD I2Cアドレス（0x27または0x3F）
-            "i2c_bus": 1,           # I2Cバス番号（Raspberry Pi 3/4は1、初期モデルは0）
-            "backlight": True       # バックライトON/OFF
-        }
-    }
-    
-    if config_path.exists():
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                # デフォルト設定をマージ（設定ファイルにない項目はデフォルト値を使用）
-                if 'lcd_settings' not in config:
-                    config['lcd_settings'] = default_config['lcd_settings']
-                else:
-                    # 部分的な設定がある場合、デフォルトとマージ
-                    for key, value in default_config['lcd_settings'].items():
-                        if key not in config['lcd_settings']:
-                            config['lcd_settings'][key] = value
-                return config
-        except Exception as e:
-            print(f"[警告] 設定ファイル読み込みエラー: {e}")
-            return default_config
-    return default_config
+# load_config() は common_utils からインポート済み
 
 
 # ============================================================================
@@ -1534,7 +1452,7 @@ def main():
     # 設定ファイル読み込み
     config = load_config()
     server_url = config.get('server_url')
-    retry_interval = config.get('retry_interval', 600)
+    retry_interval = config.get('retry_interval', DEFAULT_RETRY_INTERVAL)
     lcd_settings = config.get('lcd_settings', {})
     
     print(f"端末ID: {get_mac_address()}")

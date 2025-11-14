@@ -4,13 +4,16 @@
 クライアント設定GUI - サーバーIP設定
 """
 
-import json
 import tkinter as tk
 from tkinter import ttk, messagebox
 from pathlib import Path
 import subprocess
 import sys
 import sqlite3
+
+# 共通モジュールをインポート
+from common_utils import load_config, save_config, send_attendance_to_server
+from constants import DEFAULT_SERVER_URL, CONFIG_FILE, DB_PATH_ATTENDANCE
 
 
 class ConfigGUI:
@@ -41,41 +44,14 @@ class ConfigGUI:
     
     def load_config(self):
         """設定ファイルを読み込み"""
-        default_config = {
-            "server_url": "http://192.168.1.31:5000",
-            "lcd_settings": {
-                "i2c_addr": 0x27,      # LCD I2Cアドレス（0x27または0x3F）
-                "i2c_bus": 1,           # I2Cバス番号（Raspberry Pi 3/4は1、初期モデルは0）
-                "backlight": True       # バックライトON/OFF
-            }
-        }
-        
-        if Path(self.config_file).exists():
-            try:
-                with open(self.config_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                    # デフォルト設定をマージ（設定ファイルにない項目はデフォルト値を使用）
-                    if 'lcd_settings' not in config:
-                        config['lcd_settings'] = default_config['lcd_settings']
-                    else:
-                        # 部分的な設定がある場合、デフォルトとマージ
-                        for key, value in default_config['lcd_settings'].items():
-                            if key not in config['lcd_settings']:
-                                config['lcd_settings'][key] = value
-                    return config
-            except Exception:
-                return default_config
-        else:
-            return default_config
+        return load_config(self.config_file)
     
     def save_config(self):
         """設定ファイルを保存"""
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f, indent=2, ensure_ascii=False)
+        if save_config(self.config, self.config_file):
             return True
-        except Exception as e:
-            messagebox.showerror("エラー", f"設定の保存に失敗しました:\n{e}")
+        else:
+            messagebox.showerror("エラー", "設定の保存に失敗しました")
             return False
     
     def create_widgets(self):
@@ -96,7 +72,7 @@ class ConfigGUI:
         current_frame = ttk.LabelFrame(main_frame, text="現在の設定", padding="10")
         current_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(0, 10))
         
-        current_url = self.config.get('server_url', 'http://192.168.1.31:5000')
+        current_url = self.config.get('server_url', DEFAULT_SERVER_URL)
         ttk.Label(current_frame, text="現在のサーバーURL:").grid(row=0, column=0, sticky=tk.W, pady=5)
         self.current_url_label = ttk.Label(
             current_frame, 
@@ -126,6 +102,7 @@ class ConfigGUI:
         
         ttk.Label(preset_frame, text="よく使われるIP:").grid(row=0, column=0, sticky=tk.W)
         
+        # プリセットIPは設定ファイルから読み込むか、デフォルト値を使用
         preset_buttons = [
             ("192.168.1.24", "192.168.1.24"),
             ("192.168.1.31", "192.168.1.31"),
@@ -308,7 +285,7 @@ class ConfigGUI:
         Returns:
             tuple: (成功件数, 失敗件数, 総件数)
         """
-        db_path = "attendance.db"
+        db_path = DB_PATH_ATTENDANCE
         if not Path(db_path).exists():
             return (0, 0, 0)
         
@@ -348,49 +325,23 @@ class ConfigGUI:
                 record_id, idm, timestamp, terminal_id = record
                 
                 try:
-                    data = {
-                        'idm': idm,
-                        'timestamp': timestamp,
-                        'terminal_id': terminal_id
-                    }
-                    
-                    response = requests.post(
-                        f"{server_url}/api/attendance",
-                        json=data,
-                        timeout=5
+                    # 共通のサーバー送信関数を使用
+                    success, error_msg = send_attendance_to_server(
+                        idm, timestamp, terminal_id, server_url
                     )
                     
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result.get('status') == 'success':
-                            # 送信済みとしてマーク
-                            conn = sqlite3.connect(db_path)
-                            cursor = conn.cursor()
-                            cursor.execute("""
-                                UPDATE attendance
-                                SET sent_to_server = 1
-                                WHERE id = ?
-                            """, (record_id,))
-                            conn.commit()
-                            conn.close()
-                            success_count += 1
-                        else:
-                            # サーバーエラーだが、重複データの場合は成功として扱う
-                            message = result.get('message', '').lower()
-                            if '重複' in message or 'duplicate' in message or '既に' in message:
-                                # 重複データは送信済みとしてマーク
-                                conn = sqlite3.connect(db_path)
-                                cursor = conn.cursor()
-                                cursor.execute("""
-                                    UPDATE attendance
-                                    SET sent_to_server = 1
-                                    WHERE id = ?
-                                """, (record_id,))
-                                conn.commit()
-                                conn.close()
-                                success_count += 1
-                            else:
-                                fail_count += 1
+                    if success:
+                        # 送信済みとしてマーク
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE attendance
+                            SET sent_to_server = 1
+                            WHERE id = ?
+                        """, (record_id,))
+                        conn.commit()
+                        conn.close()
+                        success_count += 1
                     else:
                         fail_count += 1
                 except Exception:
