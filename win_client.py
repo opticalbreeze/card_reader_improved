@@ -269,6 +269,8 @@ class WindowsClientGUI:
         # リーダー監視フラグ
         self.reader_threads = []
         self.reader_check_interval = 30  # リーダー再検出間隔（秒）
+        self.active_readers = {}  # {reader_id: thread_info} - アクティブなリーダーの管理
+        self.reader_lock = threading.Lock()  # リーダー管理用ロック
         
         # GUI作成
         self.root = tk.Tk()
@@ -502,6 +504,7 @@ class WindowsClientGUI:
         リーダーが切断された場合は再検出を試みる
         """
         last_check_time = time.time()
+        last_reader_count = 0
         
         while self.running:
             time.sleep(5)  # 5秒ごとにチェック
@@ -513,36 +516,91 @@ class WindowsClientGUI:
                 # 現在のリーダー数をカウント
                 nfcpy_count = 0
                 pcsc_count = 0
+                detected_nfcpy_paths = []
+                detected_pcsc_readers = []
                 
                 if NFCPY_AVAILABLE:
                     for i in range(10):
                         try:
-                            clf = nfc.ContactlessFrontend(f'usb:{i:03d}')
+                            path = f'usb:{i:03d}'
+                            clf = nfc.ContactlessFrontend(path)
                             if clf:
                                 nfcpy_count += 1
+                                detected_nfcpy_paths.append((path, nfcpy_count))
                                 clf.close()
                         except:
                             break
                 
                 if PYSCARD_AVAILABLE:
                     try:
-                        pcsc_count = len(pcsc_readers())
+                        reader_list = pcsc_readers()
+                        pcsc_count = len(reader_list)
+                        detected_pcsc_readers = [(reader, nfcpy_count + i + 1) for i, reader in enumerate(reader_list)]
                     except:
                         pass
                 
                 total_readers = nfcpy_count + pcsc_count
                 
-                # リーダーが見つからない場合は警告
-                if total_readers == 0:
-                    self.log("[警告] カードリーダーが切断されました - 再接続を待機中")
-                    self.reader_label.config(text="リーダー切断", foreground="red")
-                else:
-                    # リーダー数が変化した場合は通知
-                    current_text = self.reader_label.cget("text")
-                    new_text = f"{total_readers}台検出"
-                    if current_text != new_text and "検出中" not in current_text:
-                        self.log(f"[通知] リーダー状態変化: {new_text}")
-                        self.reader_label.config(text=new_text, foreground="green")
+                # リーダー数が変化した場合（切断または再接続）
+                if total_readers != last_reader_count:
+                    if total_readers == 0:
+                        self.log("[警告] カードリーダーが切断されました - 再接続を待機中")
+                        self.reader_label.config(text="リーダー切断", foreground="red")
+                        # アクティブなリーダースレッドをクリア
+                        with self.reader_lock:
+                            self.active_readers.clear()
+                    elif total_readers > last_reader_count:
+                        # リーダーが再接続された - 再起動
+                        self.log(f"[復帰] カードリーダーを検出しました ({total_readers}台) - 監視を再開します")
+                        self.reader_label.config(text=f"{total_readers}台検出", foreground="green")
+                        # リーダー監視を再起動
+                        self.restart_reader_monitoring(detected_nfcpy_paths, detected_pcsc_readers)
+                    else:
+                        # リーダー数が減った（一部切断）
+                        self.log(f"[警告] リーダー数が減少しました ({total_readers}台)")
+                        self.reader_label.config(text=f"{total_readers}台検出", foreground="orange")
+                        # リーダー監視を再起動
+                        self.restart_reader_monitoring(detected_nfcpy_paths, detected_pcsc_readers)
+                    
+                    last_reader_count = total_readers
+    
+    def restart_reader_monitoring(self, nfcpy_paths, pcsc_readers):
+        """
+        リーダー監視を再起動（スリープ復帰対応）
+        
+        Args:
+            nfcpy_paths: [(path, idx), ...] - 検出されたnfcpyリーダーのリスト
+            pcsc_readers: [(reader, idx), ...] - 検出されたPC/SCリーダーのリスト
+        """
+        # 既存のリーダースレッドを停止（実際にはdaemonスレッドなので自然終了を待つ）
+        with self.reader_lock:
+            self.active_readers.clear()
+        
+        # nfcpy リーダーの監視開始
+        for path, idx in nfcpy_paths:
+            reader_id = f"nfcpy_{idx}"
+            thread = threading.Thread(
+                target=self.nfcpy_worker, 
+                args=(path, idx), 
+                daemon=True
+            )
+            thread.start()
+            with self.reader_lock:
+                self.active_readers[reader_id] = {'thread': thread, 'type': 'nfcpy', 'path': path, 'idx': idx}
+            self.log(f"[再起動] nfcpyリーダー #{idx} の監視を開始")
+        
+        # PC/SC リーダーの監視開始
+        for reader, idx in pcsc_readers:
+            reader_id = f"pcsc_{idx}"
+            thread = threading.Thread(
+                target=self.pcsc_worker,
+                args=(reader, str(reader), idx),
+                daemon=True
+            )
+            thread.start()
+            with self.reader_lock:
+                self.active_readers[reader_id] = {'thread': thread, 'type': 'pcsc', 'reader': reader, 'idx': idx}
+            self.log(f"[再起動] PC/SCリーダー #{idx}: {str(reader)[:40]}")
     
     def monitor_readers(self):
         """
@@ -550,14 +608,18 @@ class WindowsClientGUI:
         """
         nfcpy_count = 0
         pcsc_count = 0
+        detected_nfcpy_paths = []
+        detected_pcsc_readers = []
         
         # nfcpy検出
         if NFCPY_AVAILABLE:
             for i in range(10):
                 try:
-                    clf = nfc.ContactlessFrontend(f'usb:{i:03d}')
+                    path = f'usb:{i:03d}'
+                    clf = nfc.ContactlessFrontend(path)
                     if clf:
                         nfcpy_count += 1
+                        detected_nfcpy_paths.append((path, nfcpy_count))
                         clf.close()
                 except:
                     break
@@ -565,7 +627,9 @@ class WindowsClientGUI:
         # PC/SC検出
         if PYSCARD_AVAILABLE:
             try:
-                pcsc_count = len(pcsc_readers())
+                reader_list = pcsc_readers()
+                pcsc_count = len(reader_list)
+                detected_pcsc_readers = [(reader, nfcpy_count + i + 1) for i, reader in enumerate(reader_list)]
             except:
                 pass
         
@@ -580,30 +644,8 @@ class WindowsClientGUI:
         self.log(f"[検出] nfcpy:{nfcpy_count}台 / PC/SC:{pcsc_count}台")
         self.reader_label.config(text=f"{nfcpy_count+pcsc_count}台検出", foreground="green")
         
-        # nfcpy リーダーの監視開始
-        if nfcpy_count > 0:
-            for i in range(nfcpy_count):
-                threading.Thread(
-                    target=self.nfcpy_worker, 
-                    args=(f'usb:{i:03d}', i+1), 
-                    daemon=True
-                ).start()
-                self.log(f"[起動] nfcpyリーダー #{i+1} の監視を開始")
-        
-        # PC/SC リーダーの監視開始
-        if pcsc_count > 0:
-            try:
-                reader_list = pcsc_readers()
-                for i, reader in enumerate(reader_list, 1):
-                    reader_idx = nfcpy_count + i
-                    threading.Thread(
-                        target=self.pcsc_worker,
-                        args=(reader, str(reader), reader_idx),
-                        daemon=True
-                    ).start()
-                    self.log(f"[起動] PC/SCリーダー #{reader_idx}: {str(reader)[:40]}")
-            except Exception as e:
-                self.log(f"[エラー] PC/SCリーダー起動失敗: {e}")
+        # リーダー監視を開始
+        self.restart_reader_monitoring(detected_nfcpy_paths, detected_pcsc_readers)
         
         self.log("[起動] 全リーダーの監視を開始しました")
     
@@ -626,6 +668,9 @@ class WindowsClientGUI:
                 self.log(f"[エラー] nfcpyリーダー#{idx}を開けません")
                 return
             
+            consecutive_errors = 0
+            max_consecutive_errors = 10  # 連続エラーが10回続いたら再初期化
+            
             while self.running:
                 try:
                     # カード検出（短いタイムアウトで高速化: 0.5秒）
@@ -642,13 +687,43 @@ class WindowsClientGUI:
                             self.process_card(card_id, idx)
                             last_id = card_id
                             last_time = time.time()
+                        
+                        consecutive_errors = 0  # 成功したらエラーカウントをリセット
                     
                 except IOError:
                     # カードなし - 正常な状態
+                    consecutive_errors = 0
                     pass
-                except Exception:
-                    # その他のエラーは無視
-                    pass
+                except Exception as e:
+                    # エラーが発生した場合
+                    consecutive_errors += 1
+                    
+                    # 連続エラーが一定回数に達した場合、リーダーが切断された可能性がある
+                    if consecutive_errors >= max_consecutive_errors:
+                        self.log(f"[警告] nfcpyリーダー#{idx}で連続エラー - リーダーが切断された可能性があります")
+                        # ContactlessFrontendを閉じて再初期化を試みる
+                        try:
+                            clf.close()
+                        except:
+                            pass
+                        clf = None
+                        
+                        # 再初期化を試みる（最大3回）
+                        for retry in range(3):
+                            try:
+                                time.sleep(1)  # 1秒待機してから再試行
+                                clf = nfc.ContactlessFrontend(path)
+                                if clf:
+                                    self.log(f"[復帰] nfcpyリーダー#{idx}を再初期化しました")
+                                    consecutive_errors = 0
+                                    break
+                            except:
+                                if retry < 2:
+                                    time.sleep(1)
+                                else:
+                                    # 再初期化に失敗した場合、このワーカーを終了
+                                    self.log(f"[エラー] nfcpyリーダー#{idx}の再初期化に失敗しました")
+                                    return
                 
                 # カードが離れた判定（2秒以上検出なし）
                 if last_time > 0 and time.time() - last_time > 2:
@@ -676,9 +751,53 @@ class WindowsClientGUI:
         """
         last_id = None
         last_time = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 10  # 連続エラーが10回続いたら再取得
         
         while self.running:
             try:
+                # スリープ復帰時にreaderオブジェクトが無効になる可能性があるため、毎回取得
+                try:
+                    current_readers = pcsc_readers()
+                    # 現在のリーダー名に一致するリーダーを探す
+                    current_reader = None
+                    for r in current_readers:
+                        if str(r) == reader_name:
+                            current_reader = r
+                            break
+                    
+                    if not current_reader:
+                        # リーダーが見つからない場合
+                        consecutive_errors += 1
+                        if consecutive_errors >= max_consecutive_errors:
+                            self.log(f"[警告] PC/SCリーダー#{idx} ({reader_name[:40]}) が見つかりません - 切断された可能性があります")
+                            # リーダーを再取得して試みる
+                            time.sleep(2)
+                            try:
+                                current_readers = pcsc_readers()
+                                for r in current_readers:
+                                    if str(r) == reader_name or reader_name in str(r):
+                                        current_reader = r
+                                        self.log(f"[復帰] PC/SCリーダー#{idx}を再検出しました")
+                                        consecutive_errors = 0
+                                        break
+                            except:
+                                pass
+                        
+                        if not current_reader:
+                            time.sleep(1)
+                            continue
+                    else:
+                        consecutive_errors = 0  # リーダーが見つかったらエラーカウントをリセット
+                        reader = current_reader  # 最新のreaderオブジェクトを使用
+                    
+                except Exception as e:
+                    consecutive_errors += 1
+                    if consecutive_errors >= max_consecutive_errors:
+                        self.log(f"[警告] PC/SCリーダー#{idx}の検出エラー: {e}")
+                    time.sleep(1)
+                    continue
+                
                 connection = reader.createConnection()
                 connection.connect()
                 
@@ -706,14 +825,19 @@ class WindowsClientGUI:
                     self.process_card(card_id, idx)
                     last_id = card_id
                     last_time = time.time()
+                    consecutive_errors = 0  # 成功したらエラーカウントをリセット
                 
                 connection.disconnect()
                 
             except (CardConnectionException, NoCardException):
                 # カードなし、接続エラーは正常な状態
+                consecutive_errors = 0
                 pass
-            except Exception:
-                # その他のエラーは無視
+            except Exception as e:
+                # その他のエラー
+                consecutive_errors += 1
+                if consecutive_errors >= max_consecutive_errors:
+                    self.log(f"[警告] PC/SCリーダー#{idx}で連続エラー: {e}")
                 pass
             
             # カードが離れた判定（2秒以上検出なし）
