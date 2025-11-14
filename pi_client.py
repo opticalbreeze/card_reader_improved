@@ -295,8 +295,10 @@ class LocalDatabase:
     def __init__(self, db_path=None):
         """
         Args:
-            db_path (str): データベースファイルのパス
+            db_path (str): データベースファイルのパス（Noneの場合はデフォルト値を使用）
         """
+        if db_path is None:
+            db_path = DB_PATH_ATTENDANCE
         self.db_path = db_path
         self._init_database()
     
