@@ -17,6 +17,22 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 import threading
+import os
+
+# Windows環境での文字化け対策: UTF-8出力を強制
+if sys.platform == 'win32':
+    # 標準出力・標準エラー出力のエンコーディングをUTF-8に設定
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+    # コンソールのコードページをUTF-8に設定
+    try:
+        os.system('chcp 65001 >nul 2>&1')
+    except:
+        pass
+    # 環境変数でUTF-8を強制
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 # HTTP通信（サーバー送信用）
 try:
@@ -571,27 +587,33 @@ class UnifiedClient:
     
     def _init_components(self):
         """基本コンポーネントの初期化"""
-        self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
-        self.database = LocalDatabase()  # ローカルデータベース
-        self.gpio = GPIO_Control()
-        # LCD設定を読み込んで初期化
-        lcd_addr = self.lcd_settings.get('i2c_addr', 0x27)
-        lcd_bus = self.lcd_settings.get('i2c_bus', 1)
-        lcd_backlight = self.lcd_settings.get('backlight', True)
-        self.lcd = LCD_I2C(addr=lcd_addr, bus=lcd_bus, backlight=lcd_backlight) if LCD_AVAILABLE else None
-        self.count = 0
-        self.history = {}  # {card_id: last_seen_time}
-        self.lock = threading.Lock()
-        self.running = True
-        self.server_available = False
-        self.server_check_running = False
-        
-        # TODO: カタカナ表示は後日対応
-        # self.current_message = f"カードタッチ {terminal_short}"
-        self.current_message = "Touch Card"
-        
-        # 起動音
-        self.gpio.sound("startup")
+        try:
+            self.terminal_id = get_mac_address()  # MACアドレスを端末IDとして使用
+            self.database = LocalDatabase()  # ローカルデータベース
+            self.gpio = GPIO_Control()
+            # LCD設定を読み込んで初期化
+            lcd_addr = self.lcd_settings.get('i2c_addr', 0x27)
+            lcd_bus = self.lcd_settings.get('i2c_bus', 1)
+            lcd_backlight = self.lcd_settings.get('backlight', True)
+            self.lcd = LCD_I2C(addr=lcd_addr, bus=lcd_bus, backlight=lcd_backlight) if LCD_AVAILABLE else None
+            self.count = 0
+            self.history = {}  # {card_id: last_seen_time}
+            self.lock = threading.Lock()
+            self.running = True
+            self.server_available = False
+            self.server_check_running = False
+            
+            # TODO: カタカナ表示は後日対応
+            # self.current_message = f"カードタッチ {terminal_short}"
+            self.current_message = "Touch Card"
+            
+            # 起動音
+            self.gpio.sound("startup")
+        except Exception as e:
+            print(f"[エラー] コンポーネント初期化失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def _init_server(self):
         """サーバー接続チェックとエラー処理"""
@@ -1157,16 +1179,81 @@ class UnifiedClient:
                 print(f"  [警告] PC/SC検出エラー: {e}")
                 pass
         
-        # リーダーが見つからない場合
+        # リーダーが見つからない場合、待機して再試行（自動起動時のため）
         if nfcpy_count == 0 and pcsc_count == 0:
-            print("[エラー] カードリーダーが見つかりません")
-            print("[ヒント] リーダーを接続してプログラムを再起動してください")
+            print("[警告] カードリーダーが見つかりません")
+            print("[待機] リーダーの認識を待機中...（最大60秒、30秒間隔で再検出）")
             if self.lcd:
-                # TODO: カタカナ表示は後日対応
-                # self.lcd.show_with_time("リーダーなし")
-                self.lcd.show_with_time("No Reader")
-            self.gpio.led("red")
-            return
+                self.lcd.show_with_time("Wait Reader")
+            if self.gpio.available:
+                self.gpio.led("red")
+            
+            # 最大60秒間、30秒間隔で再検出を試みる
+            max_wait_seconds = 60
+            check_interval = 30
+            waited_seconds = 0
+            
+            while waited_seconds < max_wait_seconds and self.running:
+                time.sleep(check_interval)
+                waited_seconds += check_interval
+                
+                print(f"[再検出] {waited_seconds}秒経過 - リーダーを再検出中...")
+                
+                # 再検出を試みる
+                nfcpy_count = 0
+                pcsc_count = 0
+                nfcpy_devices = []
+                
+                # nfcpy再検出
+                if NFCPY_AVAILABLE:
+                    try:
+                        clf = nfc.ContactlessFrontend('usb')
+                        if clf:
+                            nfcpy_devices.append('usb')
+                            nfcpy_count += 1
+                            print(f"  ✅ nfcpyリーダーを検出: usb")
+                            clf.close()
+                            break
+                    except:
+                        try:
+                            clf = nfc.ContactlessFrontend('usb:054c:06c1')
+                            if clf:
+                                nfcpy_devices.append('usb:054c:06c1')
+                                nfcpy_count += 1
+                                print(f"  ✅ nfcpyリーダーを検出: usb:054c:06c1")
+                                clf.close()
+                                break
+                        except:
+                            pass
+                
+                # PC/SC再検出
+                if PYSCARD_AVAILABLE and pcsc_count == 0:
+                    try:
+                        readers_list = pcsc_readers()
+                        pcsc_count = len(readers_list)
+                        if pcsc_count > 0:
+                            print(f"  ✅ PC/SCリーダーを検出: {pcsc_count}台")
+                            break
+                    except:
+                        pass
+                
+                if nfcpy_count > 0 or pcsc_count > 0:
+                    print("[成功] リーダーを検出しました！")
+                    break
+            
+            # それでも見つからない場合
+            if nfcpy_count == 0 and pcsc_count == 0:
+                print("[エラー] カードリーダーが見つかりません（60秒待機後も検出失敗）")
+                print("[情報] プログラムを終了します。リーダーを接続してサービスを再起動してください。")
+                if self.lcd:
+                    self.lcd.show_with_time("No Reader")
+                if self.gpio.available:
+                    self.gpio.led("red")
+                # 自動起動時の無限ループを防ぐため、正常終了（exit code 0）
+                # systemdのRestart=alwaysを避けるため、長時間待機してから終了
+                print("[待機] 5分間待機してから終了します（リーダー接続を待機）...")
+                time.sleep(300)  # 5分待機
+                return
         
         print(f"\n[検出] nfcpy:{nfcpy_count}台 / PC/SC:{pcsc_count}台")
         print()
@@ -1482,6 +1569,13 @@ def main():
         print(f"[エラー] 予期しないエラー: {e}")
         import traceback
         traceback.print_exc()
+        # エラー時は赤LEDを点灯してブザーを鳴らす
+        try:
+            gpio = GPIO_Control()
+            gpio.led("red")
+            gpio.sound("failure")
+        except:
+            pass
 
 
 if __name__ == "__main__":

@@ -4,6 +4,26 @@
 # ダブルクリックまたは ./start_pi.sh で実行
 # ============================================================================
 
+# UTF-8環境設定（強制）
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
+# ロケール設定
+if locale -a | grep -q "ja_JP.utf8\|ja_JP.UTF-8"; then
+    export LANG=ja_JP.UTF-8
+    export LC_ALL=ja_JP.UTF-8
+else
+    # 日本語ロケールが利用できない場合は、UTF-8を強制
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+fi
+
+# ターミナルのエンコーディング設定
+if [ -t 1 ]; then
+    # 標準出力がターミナルの場合のみ設定
+    export LC_CTYPE=UTF-8
+fi
+
 echo "========================================================================"
 echo "  カードリーダーシステム 起動中..."
 echo "========================================================================"
@@ -24,19 +44,51 @@ if [ ! -d "venv" ]; then
 fi
 
 # 仮想環境を有効化
-echo "[1/3] 仮想環境を有効化中..."
+echo "[1/4] 仮想環境を有効化中..."
 source venv/bin/activate
+
+# USBデバイスが認識されるまで待機（最大30秒）
+echo "[2/4] USBデバイスの認識を待機中..."
+USB_DETECTED=false
+for i in {1..30}; do
+    if lsusb | grep -qE "054c:06c1|Sony|PaSoRi|NFC|Card Reader"; then
+        echo "  USBデバイスを検出しました"
+        USB_DETECTED=true
+        break
+    fi
+    if [ $i -eq 30 ]; then
+        echo "  [警告] USBデバイスが見つかりませんが、起動を続行します"
+    else
+        sleep 1
+    fi
+done
+
+# PC/SCサービスが起動しているか確認
+echo "[3/4] PC/SCサービスの確認中..."
+if systemctl is-active --quiet pcscd 2>/dev/null; then
+    echo "  PC/SCサービスは起動中です"
+else
+    echo "  PC/SCサービスを起動中..."
+    sudo systemctl start pcscd 2>/dev/null || true
+    sleep 2
+    if systemctl is-active --quiet pcscd 2>/dev/null; then
+        echo "  PC/SCサービスを起動しました"
+    else
+        echo "  [警告] PC/SCサービスの起動に失敗しましたが、続行します"
+    fi
+fi
 
 # 設定ファイルが存在するか確認
 if [ ! -f "client_config.json" ]; then
-    echo "[2/3] 設定ファイルが見つかりません"
+    echo "[4/4] 設定ファイルが見つかりません"
     echo "       デフォルト設定で起動します（初回起動時に自動作成されます）"
 else
-    echo "[2/3] 設定ファイル読み込み完了"
+    echo "[4/4] 設定ファイル読み込み完了"
 fi
 
 # プログラムを起動
-echo "[3/3] プログラムを起動します..."
+echo ""
+echo "[起動] プログラムを起動します..."
 echo ""
 python3 pi_client.py
 
