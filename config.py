@@ -375,7 +375,22 @@ class ConfigGUI:
                             conn.close()
                             success_count += 1
                         else:
-                            fail_count += 1
+                            # サーバーエラーだが、重複データの場合は成功として扱う
+                            message = result.get('message', '').lower()
+                            if '重複' in message or 'duplicate' in message or '既に' in message:
+                                # 重複データは送信済みとしてマーク
+                                conn = sqlite3.connect(db_path)
+                                cursor = conn.cursor()
+                                cursor.execute("""
+                                    UPDATE attendance
+                                    SET sent_to_server = 1
+                                    WHERE id = ?
+                                """, (record_id,))
+                                conn.commit()
+                                conn.close()
+                                success_count += 1
+                            else:
+                                fail_count += 1
                     else:
                         fail_count += 1
                 except Exception:

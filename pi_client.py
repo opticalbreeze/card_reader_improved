@@ -714,7 +714,7 @@ class UnifiedClient:
             timestamp (str): タイムスタンプ（ISO8601形式）
         
         Returns:
-            bool: 送信成功したかどうか
+            bool: 送信成功したかどうか（重複の場合もTrueを返す）
         """
         if not self.server_url or not REQUESTS_AVAILABLE:
             return False
@@ -739,6 +739,11 @@ class UnifiedClient:
                     self.server_available = True
                     return True
                 else:
+                    # サーバーエラーだが、重複データの場合は成功として扱う
+                    message = result.get('message', '').lower()
+                    if '重複' in message or 'duplicate' in message or '既に' in message:
+                        print(f"[送信済み] 重複データのためスキップ: {result.get('message')}")
+                        return True
                     print(f"[送信失敗] サーバーエラー: {result.get('message')}")
                     return False
             else:

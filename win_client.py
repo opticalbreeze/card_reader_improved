@@ -776,11 +776,17 @@ class WindowsClientGUI:
                         self.update_message("サーバーに記録しました", "green", 2)
                         beep("success", self.config)
                     else:
-                        # サーバーからエラーレスポンス
-                        self.log(f"[送信失敗] サーバーエラー: {result.get('message')}")
-                        self.cache.save_record(card_id, ts, self.terminal)
-                        self.update_message("ローカルに保存しました", "orange", 2)
-                        beep("fail", self.config)
+                        # サーバーからエラーレスポンスだが、重複の場合は成功として扱う
+                        message = result.get('message', '').lower()
+                        if '重複' in message or 'duplicate' in message or '既に' in message:
+                            self.log(f"[送信済み] 重複データのためスキップ: {result.get('message')}")
+                            self.update_message("既に記録済みです", "green", 2)
+                            beep("success", self.config)
+                        else:
+                            self.log(f"[送信失敗] サーバーエラー: {result.get('message')}")
+                            self.cache.save_record(card_id, ts, self.terminal)
+                            self.update_message("ローカルに保存しました", "orange", 2)
+                            beep("fail", self.config)
                 else:
                     # HTTPエラー
                     self.log(f"[送信失敗] HTTP {response.status_code} - ローカルに保存")
@@ -847,12 +853,23 @@ class WindowsClientGUI:
                                 timeout=5
                             )
                             
-                            if response.status_code == 200 and response.json().get('status') == 'success':
-                                self.cache.delete_record(record_id)
-                                self.log(f"[リトライ成功] IDm: {idm} (試行回数: {retry_count + 1})")
+                            if response.status_code == 200:
+                                result = response.json()
+                                if result.get('status') == 'success':
+                                    self.cache.delete_record(record_id)
+                                    self.log(f"[リトライ成功] IDm: {idm} (試行回数: {retry_count + 1})")
+                                else:
+                                    # 重複データの場合も成功として扱う
+                                    message = result.get('message', '').lower()
+                                    if '重複' in message or 'duplicate' in message or '既に' in message:
+                                        self.cache.delete_record(record_id)
+                                        self.log(f"[リトライ成功（重複）] IDm: {idm} - {result.get('message')}")
+                                    else:
+                                        self.cache.increment_retry_count(record_id)
+                                        self.log(f"[リトライ失敗] IDm: {idm} - {result.get('message')} (試行回数: {retry_count + 1})")
                             else:
                                 self.cache.increment_retry_count(record_id)
-                                self.log(f"[リトライ失敗] IDm: {idm} (試行回数: {retry_count + 1})")
+                                self.log(f"[リトライ失敗] IDm: {idm} HTTP {response.status_code} (試行回数: {retry_count + 1})")
                         
                         except Exception as e:
                             self.cache.increment_retry_count(record_id)
