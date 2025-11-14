@@ -47,6 +47,14 @@ fi
 echo "[1/4] 仮想環境を有効化中..."
 source venv/bin/activate
 
+# 仮想環境が正しく有効化されたか確認
+if [ -z "$VIRTUAL_ENV" ]; then
+    echo "[エラー] 仮想環境の有効化に失敗しました"
+    exit 1
+fi
+echo "  ✅ 仮想環境: $VIRTUAL_ENV"
+echo "  ✅ Python: $(which python3)"
+
 # USBデバイスが認識されるまで待機（最大30秒）
 echo "[2/4] USBデバイスの認識を待機中..."
 USB_DETECTED=false
@@ -64,18 +72,50 @@ for i in {1..30}; do
 done
 
 # PC/SCサービスが起動しているか確認
+# 注: サービスファイルのExecStartPreで既にpcscdの起動を待っているため、
+#     ここでは確認のみ行う（sudoでの起動は不要）
 echo "[3/4] PC/SCサービスの確認中..."
 if systemctl is-active --quiet pcscd 2>/dev/null; then
     echo "  PC/SCサービスは起動中です"
 else
-    echo "  PC/SCサービスを起動中..."
-    sudo systemctl start pcscd 2>/dev/null || true
-    sleep 2
-    if systemctl is-active --quiet pcscd 2>/dev/null; then
-        echo "  PC/SCサービスを起動しました"
+    echo "  [警告] PC/SCサービスが起動していませんが、続行します"
+    echo "  （サービスファイルで自動的に待機しているため、通常は問題ありません）"
+fi
+
+# PC/SCアクセス権限の確認
+echo "[3.5/4] PC/SCアクセス権限の確認中..."
+if groups | grep -q '\bpcscd\b'; then
+    echo "  ✅ ユーザーはpcscdグループに所属しています"
+else
+    echo "  ⚠️ [警告] ユーザーがpcscdグループに所属していません"
+    echo "  ⚠️ [対処] 以下のコマンドを実行して再ログインまたは再起動してください:"
+    echo "  ⚠️        sudo usermod -a -G pcscd $USER"
+fi
+
+# PC/SCソケットファイルの確認
+if [ -S /var/run/pcscd/pcscd.comm ]; then
+    echo "  ✅ PC/SCソケットファイルが存在します"
+    if [ -r /var/run/pcscd/pcscd.comm ] && [ -w /var/run/pcscd/pcscd.comm ]; then
+        echo "  ✅ PC/SCソケットファイルへの読み書き権限があります"
     else
-        echo "  [警告] PC/SCサービスの起動に失敗しましたが、続行します"
+        echo "  ⚠️ [警告] PC/SCソケットファイルへの読み書き権限がありません"
     fi
+else
+    echo "  ⚠️ [警告] PC/SCソケットファイルが見つかりません"
+fi
+
+# PC/SC接続テスト（オプション、エラーが出ても続行）
+# 仮想環境のPythonを明示的に使用
+echo "[3.6/4] PC/SC接続テスト中..."
+PYTHON_EXEC="$VIRTUAL_ENV/bin/python3"
+if [ ! -f "$PYTHON_EXEC" ]; then
+    PYTHON_EXEC="python3"  # フォールバック
+fi
+if "$PYTHON_EXEC" -c "from smartcard.System import readers; readers()" 2>/dev/null; then
+    echo "  ✅ PC/SC接続テスト成功"
+else
+    echo "  ⚠️ [警告] PC/SC接続テスト失敗 - 権限の問題の可能性があります"
+    echo "  ⚠️ [対処] sudo usermod -a -G pcscd $USER を実行して再ログインしてください"
 fi
 
 # 設定ファイルが存在するか確認
@@ -90,7 +130,17 @@ fi
 echo ""
 echo "[起動] プログラムを起動します..."
 echo ""
-python3 pi_client.py
+
+# 仮想環境のPythonを明示的に使用（自動起動時の確実性のため）
+PYTHON_EXEC="$VIRTUAL_ENV/bin/python3"
+if [ ! -f "$PYTHON_EXEC" ]; then
+    echo "[警告] 仮想環境のPythonが見つかりません。システムのpython3を使用します"
+    PYTHON_EXEC="python3"
+fi
+echo "[確認] 使用するPython: $PYTHON_EXEC"
+echo ""
+
+exec "$PYTHON_EXEC" pi_client.py
 
 # 終了時
 echo ""
