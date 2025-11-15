@@ -894,28 +894,43 @@ class UnifiedClient:
     def process_card(self, card_id, reader_index):
         """
         カードを処理（サーバー送信優先 → ローカルDB保存）
-        
+
         Args:
             card_id (str): カードID
             reader_index (int): リーダー番号
-        
+
         Returns:
             bool: 処理成功したかどうか
         """
         timestamp = datetime.now().isoformat()
         self._handle_card_read()
+
+        # チャタリング防止: 同一時刻打刻チェック
+        if not hasattr(self, 'attendance_history'):
+            self.attendance_history = {}
         
+        from common_utils import is_duplicate_attendance
+        is_dup, dup_msg = is_duplicate_attendance(card_id, timestamp, self.attendance_history)
+        
+        if is_dup:
+            # 重複打刻の場合、アラートを出してスキップ
+            print(f"[重複打刻] {dup_msg} - スキップ")
+            self.set_lcd_message("Already Punched", 2)
+            self.gpio.sound("failure")
+            self.gpio.led("orange")
+            time.sleep(1)
+            self.gpio.led("green")
+            return False
+
         # サーバー送信を優先
         server_sent = False
         if self.server_url and REQUESTS_AVAILABLE:
             server_sent = self.send_to_server(card_id, timestamp)
-        
+
         if server_sent:
             return self._handle_server_success(card_id, timestamp)
         else:
-            return self._handle_server_failure(card_id, timestamp)
-    
-    def _handle_card_read(self):
+            return self._handle_server_failure(card_id, timestamp)    def _handle_card_read(self):
         """カード読み込み時のフィードバック"""
         self.set_lcd_message(MESSAGE_READING, 1)
         self.gpio.sound("card_read")

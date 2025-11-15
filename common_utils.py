@@ -307,17 +307,70 @@ def get_pcsc_commands(reader_name: str) -> list:
 def is_valid_card_id(card_id: str) -> bool:
     """
     カードIDが有効かどうかをチェック
-    
+
     Args:
         card_id: カードID
-    
+
     Returns:
         bool: 有効なカードIDかどうか
     """
     from constants import INVALID_CARD_IDS
-    
+
     if not card_id or len(card_id) < 8:
         return False
-    
+
     return card_id.upper() not in [id.upper() for id in INVALID_CARD_IDS]
 
+
+# ============================================================================
+# チャタリング防止（同一時刻打刻チェック）
+# ============================================================================
+
+def is_duplicate_attendance(card_id: str, timestamp: str, history: dict) -> tuple:
+    """
+    同じカードIDで同じ日付・時刻（分単位）の打刻が既にあるかチェック
+    
+    Args:
+        card_id: カードID
+        timestamp: タイムスタンプ（ISO8601形式）
+        history: 履歴辞書 {card_id: {'timestamp': str, 'datetime': datetime}}
+    
+    Returns:
+        tuple: (is_duplicate: bool, message: str)
+    """
+    from datetime import datetime
+    from constants import ENABLE_SAME_MINUTE_CHECK, SAME_MINUTE_THRESHOLD
+    
+    if not ENABLE_SAME_MINUTE_CHECK:
+        return False, ""
+    
+    try:
+        current_dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        current_minute_key = current_dt.strftime("%Y-%m-%d %H:%M")
+        
+        if card_id in history:
+            last_record = history[card_id]
+            last_dt = last_record.get('datetime')
+            
+            if last_dt:
+                last_minute_key = last_dt.strftime("%Y-%m-%d %H:%M")
+                
+                # 同じ分（YYYY-MM-DD HH:MM）であれば重複
+                if current_minute_key == last_minute_key:
+                    time_diff = (current_dt - last_dt).total_seconds()
+                    
+                    if time_diff < SAME_MINUTE_THRESHOLD:
+                        return True, f"同一時刻打刻済み ({last_minute_key})"
+        
+        # 履歴を更新
+        history[card_id] = {
+            'timestamp': timestamp,
+            'datetime': current_dt
+        }
+        
+        return False, ""
+    
+    except Exception as e:
+        # エラーが発生した場合は重複チェックをスキップ
+        print(f"[警告] 重複チェックエラー: {e}")
+        return False, ""

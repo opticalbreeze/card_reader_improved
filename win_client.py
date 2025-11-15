@@ -843,7 +843,7 @@ class WindowsClientGUI:
         with self.lock:
             now = time.time()
             
-            # 重複チェック
+            # 重複チェック（連続読み取り防止）
             if card_id in self.history and now - self.history[card_id] < CARD_DUPLICATE_THRESHOLD:
                 return
             
@@ -862,6 +862,20 @@ class WindowsClientGUI:
             
             # サーバー送信
             ts = datetime.now().isoformat()
+            
+            # チャタリング防止: 同一時刻打刻チェック
+            if not hasattr(self, 'attendance_history'):
+                self.attendance_history = {}
+            
+            from common_utils import is_duplicate_attendance
+            is_dup, dup_msg = is_duplicate_attendance(card_id, ts, self.attendance_history)
+            
+            if is_dup:
+                # 重複打刻の場合、アラートを出してスキップ
+                self.log(f"[重複打刻] {dup_msg} - スキップ")
+                self.update_message(f"打刻済み: {dup_msg}", "orange", 3)
+                beep("fail", self.config)
+                return
             
             try:
                 # 共通のサーバー送信関数を使用
