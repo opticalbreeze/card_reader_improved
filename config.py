@@ -22,7 +22,7 @@ class ConfigGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("打刻システム - クライアント設定")
-        self.root.geometry("800x750")
+        self.root.geometry("850x850")
         self.root.resizable(True, True)
         
         # ウィンドウを中央に配置
@@ -56,9 +56,30 @@ class ConfigGUI:
     
     def create_widgets(self):
         """ウィジェット作成"""
+        # スクロール可能なキャンバスとフレームの作成
+        canvas = tk.Canvas(self.root)
+        scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
         # メインフレーム
-        main_frame = ttk.Frame(self.root, padding="20")
+        main_frame = ttk.Frame(scrollable_frame, padding="20")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # グリッドの重み設定
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        
+        # キャンバスとスクロールバーの配置
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
         
         # タイトル
         title_label = ttk.Label(
