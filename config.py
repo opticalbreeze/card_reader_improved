@@ -22,8 +22,8 @@ class ConfigGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("打刻システム - クライアント設定")
-        self.root.geometry("600x650")
-        self.root.resizable(False, False)
+        self.root.geometry("800x750")
+        self.root.resizable(True, True)
         
         # ウィンドウを中央に配置
         self.center_window()

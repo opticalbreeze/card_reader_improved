@@ -205,15 +205,29 @@ class GPIO_Control:
         
         for duration, freq in BUZZER_PATTERNS.get(pattern, [(0.1, 1000)]):
             try:
+                # PWMオブジェクトを作成
                 pwm = GPIO.PWM(BUZZER_PIN, freq)
                 pwm.start(50)  # デューティ比50%
                 time.sleep(duration)
                 pwm.stop()
+                # PWMオブジェクトを削除してリソースを解放
+                del pwm
                 time.sleep(0.05)
+            except RuntimeError as e:
+                if "already exists" in str(e):
+                    # 既存のPWMをクリーンアップして再試行
+                    try:
+                        GPIO.setup(BUZZER_PIN, GPIO.OUT)
+                        pwm = GPIO.PWM(BUZZER_PIN, freq)
+                        pwm.start(50)
+                        time.sleep(duration)
+                        pwm.stop()
+                        del pwm
+                        time.sleep(0.05)
+                    except:
+                        pass
             except Exception as e:
                 print(f"[エラー] ブザー制御失敗 ({pattern}, {freq}Hz): {e}")
-                import traceback
-                traceback.print_exc()
     
     def led(self, color):
         """
