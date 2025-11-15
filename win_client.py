@@ -492,18 +492,18 @@ class WindowsClientGUI:
                 detected_nfcpy_paths = []
                 detected_pcsc_readers = []
                 
+                # nfcpy検出（AI_TROUBLESHOOTING_GUIDEの推奨方法）
                 if NFCPY_AVAILABLE:
-                    for i in range(10):
-                        try:
-                            path = f'usb:{i:03d}'
-                            clf = nfc.ContactlessFrontend(path)
-                            if clf:
-                                nfcpy_count += 1
-                                detected_nfcpy_paths.append((path, nfcpy_count))
-                                clf.close()
-                        except:
-                            break
+                    try:
+                        clf = nfc.ContactlessFrontend('usb')
+                        if clf:
+                            nfcpy_count = 1
+                            detected_nfcpy_paths.append(('usb', 1))
+                            clf.close()
+                    except:
+                        pass
                 
+                # PC/SC検出
                 if PYSCARD_AVAILABLE:
                     try:
                         reader_list = pcsc_readers()
@@ -584,18 +584,18 @@ class WindowsClientGUI:
         detected_nfcpy_paths = []
         detected_pcsc_readers = []
         
-        # nfcpy検出
+        # nfcpy検出（AI_TROUBLESHOOTING_GUIDEの推奨方法）
         if NFCPY_AVAILABLE:
-            for i in range(10):
-                try:
-                    path = f'usb:{i:03d}'
-                    clf = nfc.ContactlessFrontend(path)
-                    if clf:
-                        nfcpy_count += 1
-                        detected_nfcpy_paths.append((path, nfcpy_count))
-                        clf.close()
-                except:
-                    break
+            try:
+                # 'usb' だけを指定すれば自動的にリーダーを見つける
+                clf = nfc.ContactlessFrontend('usb')
+                if clf:
+                    nfcpy_count = 1
+                    detected_nfcpy_paths.append(('usb', 1))
+                    self.log(f"[検出] nfcpyリーダー: {clf}")
+                    clf.close()
+            except Exception as e:
+                self.log(f"[情報] nfcpyリーダー未検出: {e}")
         
         # PC/SC検出
         if PYSCARD_AVAILABLE:
@@ -653,8 +653,18 @@ class WindowsClientGUI:
                     }, terminate=lambda: not self.running)
                     
                     if tag:
-                        # IDm または identifier を取得
-                        card_id = (tag.idm if hasattr(tag, 'idm') else tag.identifier).hex().upper()
+                        # IDmを取得（AI_TROUBLESHOOTING_GUIDEの推奨方法）
+                        try:
+                            if hasattr(tag, 'idm'):
+                                card_id = tag.idm.hex().upper()
+                            elif hasattr(tag, '_nfcid'):
+                                card_id = tag._nfcid.hex().upper()
+                            elif hasattr(tag, 'identifier'):
+                                card_id = tag.identifier.hex().upper()
+                            else:
+                                card_id = None
+                        except:
+                            card_id = None
                         
                         if card_id and card_id != last_id:
                             self.process_card(card_id, idx)
@@ -776,7 +786,7 @@ class WindowsClientGUI:
                 
                 # 複数のコマンドを試してカードIDを取得
                 card_id = None
-                commands = get_reader_commands(reader_name)
+                commands = get_pcsc_commands(reader_name)
                 
                 for cmd in commands:
                     try:
