@@ -59,7 +59,7 @@ git diff --cached --quiet
 if errorlevel 1 (
     REM 変更がある場合、コミット
     echo [4/5] 変更をコミットしています...
-    git commit -m "自動復旧機能を追加: ハートビート、接続チェック、自動リセット、エラーハンドリング強化、詳細ログ出力"
+    git commit -m "LCD文字化け対策を追加: パディング強化、クリア機能、バッファ残存防止"
     if errorlevel 1 (
         echo エラー: コミットに失敗しました
         pause

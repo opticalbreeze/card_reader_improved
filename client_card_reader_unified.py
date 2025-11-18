@@ -326,9 +326,11 @@ class AttendanceClient:
         if LCD_AVAILABLE:
             try:
                 self.lcd = LCD_I2C()
+                # 初期化メッセージ（ASCII文字のみ）
                 self.lcd.display("Card Reader", "Initializing...")
             except Exception as e:
                 logger.error(f"LCD初期化エラー: {e}")
+                logger.debug(traceback.format_exc())
                 self.lcd = None
         else:
             self.lcd = None
@@ -424,13 +426,78 @@ class AttendanceClient:
         except Exception as e:
             logger.error(f"ブザー制御エラー: {e}")
     
-    def update_lcd(self, line1: str, line2: str):
-        """LCDを更新"""
+    def sanitize_lcd_text(self, text: str, max_length: int = 16) -> str:
+        """LCD表示用に文字列をサニタイズ（ASCII互換文字のみ）"""
+        if not text:
+            return " " * max_length  # 空文字列の場合は空白で埋める
+        
+        # 日本語や特殊文字をASCII互換文字に変換
+        result = ""
+        for char in text:
+            # ASCII文字（0x20-0x7E）はそのまま
+            if 0x20 <= ord(char) <= 0x7E:
+                result += char
+            # 改行やタブは空白に変換
+            elif char in ['\n', '\r', '\t']:
+                result += ' '
+            # その他の文字は空白に変換
+            else:
+                result += ' '
+        
+        # 先頭・末尾の空白を削除
+        result = result.strip()
+        
+        # 最大長に制限
+        if len(result) > max_length:
+            result = result[:max_length]
+        
+        # 空文字列の場合は空白を返す
+        if not result:
+            result = " " * max_length
+        
+        # 必ずmax_length文字になるように空白でパディング（前の文字列の残りを消すため）
+        result = result.ljust(max_length, ' ')
+        
+        return result
+    
+    def clear_lcd(self):
+        """LCD画面をクリア"""
         if self.lcd is not None:
             try:
-                self.lcd.display(line1[:16], line2[:16])
+                # LCD_I2Cモジュールにclearメソッドがある場合
+                if hasattr(self.lcd, 'clear'):
+                    self.lcd.clear()
+                # clearメソッドがない場合、空白で埋める
+                else:
+                    self.lcd.display(" " * 16, " " * 16)
+            except Exception as e:
+                logger.debug(f"LCDクリアエラー（無視）: {e}")
+    
+    def update_lcd(self, line1: str, line2: str):
+        """LCDを更新（文字化け対策版・バッファクリア対応）"""
+        if self.lcd is not None:
+            try:
+                # 文字列をサニタイズ（ASCII互換文字のみ）
+                safe_line1 = self.sanitize_lcd_text(line1, 16)
+                safe_line2 = self.sanitize_lcd_text(line2, 16)
+                
+                # デバッグログ（文字化けが発生している場合の確認用）
+                if DEBUG_MODE:
+                    logger.debug(f"LCD表示: '{safe_line1}' / '{safe_line2}' (長さ: {len(safe_line1)}/{len(safe_line2)})")
+                
+                # LCDに表示（必ず16文字でパディングされているので、前の文字列の残りは消える）
+                self.lcd.display(safe_line1, safe_line2)
+                
             except Exception as e:
                 logger.error(f"LCD更新エラー: {e}")
+                logger.debug(traceback.format_exc())
+                # エラーが発生した場合、LCDをクリアして再試行
+                try:
+                    self.clear_lcd()
+                    time.sleep(0.1)
+                    self.lcd.display(safe_line1, safe_line2)
+                except Exception as e2:
+                    logger.error(f"LCD再試行エラー: {e2}")
     
     def send_attendance(self, card_id: str, timestamp: str) -> bool:
         """サーバーに打刻データを送信"""
@@ -556,6 +623,9 @@ class AttendanceClient:
                             else:
                                 logger.info("NFCリーダーを再接続しました")
                                 self.set_led('blue', True)
+                                # LCDをクリアしてから表示（文字化け防止）
+                                self.clear_lcd()
+                                time.sleep(0.05)
                                 self.update_lcd("Card Reader", "Reconnected")
                     
                     # カードが長時間検出されない場合、接続をリセット（5分ごと）
@@ -591,6 +661,7 @@ class AttendanceClient:
                         # LEDとブザーでフィードバック
                         self.set_led('green', True)
                         self.beep(0.1)
+                        # カードIDを表示（16進数のみなので文字化けしない）
                         self.update_lcd("Card Detected", card_id[:16])
                         
                         # サーバーに送信
@@ -611,6 +682,9 @@ class AttendanceClient:
                         # 状態表示をリセット
                         time.sleep(1)
                         self.set_led('blue', True)
+                        # LCDをクリアしてから表示（文字化け防止）
+                        self.clear_lcd()
+                        time.sleep(0.05)  # クリア処理の待機時間
                         self.update_lcd("Card Reader", "Ready")
                     
                     else:
@@ -644,6 +718,9 @@ class AttendanceClient:
                             logger.info("NFCリーダーを再接続しました")
                             consecutive_errors = 0
                             self.set_led('blue', True)
+                            # LCDをクリアしてから表示（文字化け防止）
+                            self.clear_lcd()
+                            time.sleep(0.05)
                             self.update_lcd("Card Reader", "Reconnected")
                     
                     time.sleep(1)
