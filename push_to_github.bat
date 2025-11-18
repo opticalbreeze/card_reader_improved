@@ -59,7 +59,7 @@ git diff --cached --quiet
 if errorlevel 1 (
     REM 変更がある場合、コミット
     echo [4/5] 変更をコミットしています...
-    git commit -m "LCD文字化け対策強化: 制御文字除去、カードID検証、詳細デバッグログ追加"
+    git commit -m "LCD文字化け対策: コードを簡素化して過剰な処理を削除"
     if errorlevel 1 (
         echo エラー: コミットに失敗しました
         pause

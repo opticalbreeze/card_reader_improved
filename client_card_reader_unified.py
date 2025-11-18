@@ -205,18 +205,8 @@ class NFCReader:
                     else:
                         # 既に文字列の場合
                         card_id = str(tag.idm).upper()
-                    
-                    # 16進数文字列として検証（0-9, A-Fのみ）
-                    if all(c in '0123456789ABCDEF' for c in card_id):
-                        logger.debug(f"カード検出 (FeliCa): {card_id} (長さ: {len(card_id)})")
-                        return card_id
-                    else:
-                        logger.warning(f"無効な文字が含まれています: {card_id}")
-                        # 無効な文字を除去して再試行
-                        card_id = ''.join(c for c in card_id if c in '0123456789ABCDEF')
-                        if card_id:
-                            logger.debug(f"カード検出 (FeliCa, 修正後): {card_id}")
-                            return card_id
+                    logger.debug(f"カード検出 (FeliCa): {card_id}")
+                    return card_id
                 except Exception as e:
                     logger.error(f"IDm取得エラー: {e}")
                     logger.debug(traceback.format_exc())
@@ -230,18 +220,8 @@ class NFCReader:
                     else:
                         # 既に文字列の場合
                         card_id = str(tag.identifier).upper()
-                    
-                    # 16進数文字列として検証（0-9, A-Fのみ）
-                    if all(c in '0123456789ABCDEF' for c in card_id):
-                        logger.debug(f"カード検出 (Mifare): {card_id} (長さ: {len(card_id)})")
-                        return card_id
-                    else:
-                        logger.warning(f"無効な文字が含まれています: {card_id}")
-                        # 無効な文字を除去して再試行
-                        card_id = ''.join(c for c in card_id if c in '0123456789ABCDEF')
-                        if card_id:
-                            logger.debug(f"カード検出 (Mifare, 修正後): {card_id}")
-                            return card_id
+                    logger.debug(f"カード検出 (Mifare): {card_id}")
+                    return card_id
                 except Exception as e:
                     logger.error(f"UID取得エラー: {e}")
                     logger.debug(traceback.format_exc())
@@ -465,68 +445,28 @@ class AttendanceClient:
             logger.error(f"ブザー制御エラー: {e}")
     
     def sanitize_lcd_text(self, text: str, max_length: int = 16) -> str:
-        """LCD表示用に文字列をサニタイズ（制御文字の除去とパディング）
+        """LCD表示用に文字列をサニタイズ（シンプル版）
         
-        文字化けの原因:
-        - 制御文字（0x00-0x1F）が混入している
-        - 特殊文字（0x7F-0xFF）が混入している
-        - バイナリデータが文字列として解釈されている
+        最小限の処理のみ:
+        1. 制御文字（改行、タブなど）を空白に変換
+        2. 最大長に制限
+        3. 16文字でパディング（前の文字列の残りを消すため）
         """
         if not text:
-            return " " * max_length  # 空文字列の場合は空白で埋める
+            return " " * max_length
         
-        # 文字列を確実に文字列型に変換（bytesオブジェクトの場合）
-        if isinstance(text, bytes):
-            try:
-                text = text.decode('ascii', errors='replace')
-            except Exception as e:
-                logger.warning(f"文字列のデコードエラー: {e}")
-                text = str(text)
+        # 文字列型に変換
+        text = str(text)
         
-        # 制御文字や改行文字を除去・変換
-        result = ""
-        invalid_chars = []
-        for char in text:
-            char_code = ord(char)
-            # 改行、タブ、制御文字（0x00-0x1F）を空白に変換
-            if char in ['\n', '\r', '\t'] or char_code < 0x20:
-                result += ' '
-                if DEBUG_MODE and char_code < 0x20:
-                    invalid_chars.append(f"0x{char_code:02X}")
-            # 通常の表示可能なASCII文字（0x20-0x7E）はそのまま
-            elif 0x20 <= char_code <= 0x7E:
-                result += char
-            # その他の文字（0x7F-0xFF、日本語など）は空白に変換
-            else:
-                result += ' '
-                if DEBUG_MODE:
-                    invalid_chars.append(f"0x{char_code:02X}")
-        
-        # 無効な文字が見つかった場合、ログに出力
-        if DEBUG_MODE and invalid_chars:
-            logger.warning(f"LCD表示から無効な文字を除去: {invalid_chars} (元の文字列: {repr(text)})")
-        
-        # 先頭・末尾の空白を削除
-        result = result.strip()
+        # 制御文字（改行、タブ）を空白に変換
+        result = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
         
         # 最大長に制限
         if len(result) > max_length:
             result = result[:max_length]
         
-        # 空文字列の場合は空白を返す
-        if not result:
-            result = " " * max_length
-        
         # 必ずmax_length文字になるように空白でパディング（前の文字列の残りを消すため）
-        # これが文字化け防止の重要なポイント
         result = result.ljust(max_length, ' ')
-        
-        # 最終チェック: すべての文字が表示可能なASCII文字か確認
-        for i, char in enumerate(result):
-            char_code = ord(char)
-            if not (0x20 <= char_code <= 0x7E or char == ' '):
-                logger.error(f"LCD表示に無効な文字が含まれています: 位置{i}, 文字コード0x{char_code:02X}, 文字'{char}'")
-                result = result[:i] + ' ' + result[i+1:]
         
         return result
     
@@ -544,36 +484,19 @@ class AttendanceClient:
                 logger.debug(f"LCDクリアエラー（無視）: {e}")
     
     def update_lcd(self, line1: str, line2: str):
-        """LCDを更新（文字化け対策版・バッファクリア対応）
-        
-        文字化け防止のポイント:
-        1. 制御文字の除去（改行、タブなど）
-        2. 必ず16文字でパディング（前の文字列の残りを消す）
-        3. エラー時の自動クリア
-        """
+        """LCDを更新（シンプル版）"""
         if self.lcd is not None:
             try:
-                # 文字列をサニタイズ（制御文字除去とパディング）
+                # 文字列をサニタイズ（最小限の処理）
                 safe_line1 = self.sanitize_lcd_text(line1, 16)
                 safe_line2 = self.sanitize_lcd_text(line2, 16)
                 
-                # デバッグログ（文字化けが発生している場合の確認用）
-                if DEBUG_MODE:
-                    logger.debug(f"LCD表示: '{safe_line1}' / '{safe_line2}' (長さ: {len(safe_line1)}/{len(safe_line2)})")
-                
-                # LCDに表示（必ず16文字でパディングされているので、前の文字列の残りは消える）
+                # LCDに表示
                 self.lcd.display(safe_line1, safe_line2)
                 
             except Exception as e:
                 logger.error(f"LCD更新エラー: {e}")
                 logger.debug(traceback.format_exc())
-                # エラーが発生した場合、LCDをクリアして再試行
-                try:
-                    self.clear_lcd()
-                    time.sleep(0.1)
-                    self.lcd.display(safe_line1, safe_line2)
-                except Exception as e2:
-                    logger.error(f"LCD再試行エラー: {e2}")
     
     def send_attendance(self, card_id: str, timestamp: str) -> bool:
         """サーバーに打刻データを送信"""
@@ -699,9 +622,6 @@ class AttendanceClient:
                             else:
                                 logger.info("NFCリーダーを再接続しました")
                                 self.set_led('blue', True)
-                                # LCDをクリアしてから表示（文字化け防止）
-                                self.clear_lcd()
-                                time.sleep(0.05)
                                 self.update_lcd("Card Reader", "Reconnected")
                     
                     # カードが長時間検出されない場合、接続をリセット（5分ごと）
@@ -737,10 +657,8 @@ class AttendanceClient:
                         # LEDとブザーでフィードバック
                         self.set_led('green', True)
                         self.beep(0.1)
-                        # カードIDを表示（16進数のみなので文字化けしないはずだが、念のためサニタイズ）
-                        # カードIDが長い場合、最初の16文字を表示
-                        display_card_id = card_id[:16] if len(card_id) <= 16 else card_id[:16]
-                        self.update_lcd("Card Detected", display_card_id)
+                        # カードIDを表示（最初の16文字）
+                        self.update_lcd("Card Detected", card_id[:16])
                         
                         # サーバーに送信
                         if self.send_attendance(card_id, timestamp):
@@ -760,9 +678,6 @@ class AttendanceClient:
                         # 状態表示をリセット
                         time.sleep(1)
                         self.set_led('blue', True)
-                        # LCDをクリアしてから表示（文字化け防止）
-                        self.clear_lcd()
-                        time.sleep(0.05)  # クリア処理の待機時間
                         self.update_lcd("Card Reader", "Ready")
                     
                     else:
@@ -796,9 +711,6 @@ class AttendanceClient:
                             logger.info("NFCリーダーを再接続しました")
                             consecutive_errors = 0
                             self.set_led('blue', True)
-                            # LCDをクリアしてから表示（文字化け防止）
-                            self.clear_lcd()
-                            time.sleep(0.05)
                             self.update_lcd("Card Reader", "Reconnected")
                     
                     time.sleep(1)
