@@ -1,0 +1,27 @@
+以下のコマンドを順番に実行してください：
+
+1. Gitリポジトリの初期化（初回のみ）
+   git init
+
+2. リモートリポジトリの設定（初回のみ）
+   git remote add origin https://github.com/opticalbreeze/card_reader_improved.git
+
+3. すべてのファイルをステージング
+   git add .
+
+4. コミット
+   git commit -m "自動復旧機能を追加 - 1時間で停止する問題を解決
+
+- ハートビート機能を追加（5分ごとに動作状況をログ出力）
+- NFCリーダーの接続状態を定期的にチェック（1分ごと）
+- 長時間カード検出なしの自動リセット機能
+- エラーハンドリングの強化
+- 詳細なログ出力を追加
+- メモリリーク対策版の改善"
+
+5. GitHubにプッシュ
+   git push -u origin main
+
+注意: ブランチ名が master の場合は、最後のコマンドを以下に変更してください：
+   git push -u origin master
+

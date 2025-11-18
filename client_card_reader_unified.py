@@ -172,6 +172,17 @@ class NFCReader:
                 self.clf = None
                 self.is_connected = False
     
+    def check_connection(self) -> bool:
+        """NFCリーダーの接続状態を確認"""
+        if self.clf is None:
+            return False
+        try:
+            # 接続状態を確認（簡単なテスト）
+            return self.is_connected
+        except Exception as e:
+            logger.debug(f"接続確認エラー: {e}")
+            return False
+    
     def read_card(self, timeout: float = 0.5) -> Optional[str]:
         """カードを読み取る"""
         if not self.is_connected or self.clf is None:
@@ -202,6 +213,10 @@ class NFCReader:
             
         except nfc.clf.TimeoutError:
             # タイムアウトは正常な動作
+            return None
+        except nfc.clf.CommunicationError as e:
+            logger.warning(f"NFC通信エラー: {e} - 接続をリセットします")
+            self.disconnect()
             return None
         except Exception as e:
             logger.error(f"カード読み取りエラー: {e}")
@@ -290,6 +305,11 @@ class AttendanceClient:
         self.read_count = 0
         self.error_count = 0
         self.running = False
+        self.last_card_detection_time = 0  # 最後にカードが検出された時刻
+        self.last_heartbeat_time = time.time()  # 最後のハートビート時刻
+        self.connection_check_interval = 60  # 接続チェック間隔（秒）
+        self.last_connection_check = time.time()  # 最後の接続チェック時刻
+        self.no_card_detection_timeout = 300  # カードが検出されない場合のタイムアウト（秒）
         
         # GPIO初期化
         if GPIO_AVAILABLE and GPIO_CONFIG_AVAILABLE:
@@ -485,7 +505,7 @@ class AttendanceClient:
                     self.nfc_reader.connect()
     
     def read_card_loop(self):
-        """カード読み取りループ（メモリリーク対策版）"""
+        """カード読み取りループ（メモリリーク対策版・自動復旧機能強化）"""
         logger.info("カード読み取りループを開始します")
         self.running = True
         
@@ -499,19 +519,61 @@ class AttendanceClient:
         
         consecutive_errors = 0
         max_consecutive_errors = 10
+        loop_count = 0
+        start_time = time.time()
         
         try:
             while self.running:
                 try:
+                    current_time = time.time()
+                    loop_count += 1
+                    
                     # メモリチェックとクリーンアップ
                     self.check_memory_and_cleanup()
+                    
+                    # ハートビート（5分ごと）
+                    if current_time - self.last_heartbeat_time >= 300:
+                        self.last_heartbeat_time = current_time
+                        uptime = int(current_time - start_time)
+                        logger.info(f"[ハートビート] 動作中 - 稼働時間: {uptime}秒, "
+                                   f"読み取り回数: {self.read_count}, "
+                                   f"エラー回数: {self.error_count}, "
+                                   f"ループ回数: {loop_count}")
+                    
+                    # NFCリーダーの接続状態を定期的にチェック（1分ごと）
+                    if current_time - self.last_connection_check >= self.connection_check_interval:
+                        self.last_connection_check = current_time
+                        if not self.nfc_reader.check_connection() or not self.nfc_reader.is_connected:
+                            logger.warning("NFCリーダーの接続が切れています。再接続します")
+                            self.nfc_reader.disconnect()
+                            time.sleep(2)
+                            if not self.nfc_reader.connect():
+                                logger.error("NFCリーダーの再接続に失敗しました。再試行します...")
+                                time.sleep(5)
+                                if not self.nfc_reader.connect():
+                                    logger.error("NFCリーダーの再接続に2回失敗しました")
+                                    break
+                            else:
+                                logger.info("NFCリーダーを再接続しました")
+                                self.set_led('blue', True)
+                                self.update_lcd("Card Reader", "Reconnected")
+                    
+                    # カードが長時間検出されない場合、接続をリセット（5分ごと）
+                    if (self.last_card_detection_time > 0 and 
+                        current_time - self.last_card_detection_time >= self.no_card_detection_timeout):
+                        logger.info("長時間カードが検出されていません。接続をリセットします")
+                        self.nfc_reader.disconnect()
+                        time.sleep(1)
+                        if not self.nfc_reader.connect():
+                            logger.error("接続リセット後の再接続に失敗しました")
+                            break
+                        self.last_card_detection_time = current_time  # リセット
                     
                     # カードを読み取る
                     card_id = self.nfc_reader.read_card(timeout=0.5)
                     
                     if card_id is not None:
                         # 同じカードの連続読み取りを防止
-                        current_time = time.time()
                         if (card_id == self.last_card_id and 
                             current_time - self.last_card_time < self.card_interval):
                             time.sleep(0.1)
@@ -519,6 +581,7 @@ class AttendanceClient:
                         
                         self.last_card_id = card_id
                         self.last_card_time = current_time
+                        self.last_card_detection_time = current_time  # カード検出時刻を更新
                         self.read_count += 1
                         consecutive_errors = 0
                         
@@ -563,18 +626,25 @@ class AttendanceClient:
                 except Exception as e:
                     self.error_count += 1
                     consecutive_errors += 1
-                    logger.error(f"ループ内エラー (エラー回数: {self.error_count}): {e}")
+                    logger.error(f"ループ内エラー (エラー回数: {self.error_count}, 連続エラー: {consecutive_errors}): {e}")
                     logger.debug(traceback.format_exc())
                     
                     # 連続エラーが多すぎる場合、NFCリーダーを再接続
                     if consecutive_errors >= max_consecutive_errors:
-                        logger.warning("連続エラーが多すぎます。NFCリーダーを再接続します")
+                        logger.warning(f"連続エラーが{max_consecutive_errors}回発生しました。NFCリーダーを再接続します")
                         self.nfc_reader.disconnect()
                         time.sleep(2)
                         if not self.nfc_reader.connect():
-                            logger.error("NFCリーダーの再接続に失敗しました")
-                            break
-                        consecutive_errors = 0
+                            logger.error("NFCリーダーの再接続に失敗しました。5秒後に再試行します...")
+                            time.sleep(5)
+                            if not self.nfc_reader.connect():
+                                logger.error("NFCリーダーの再接続に2回失敗しました")
+                                break
+                        else:
+                            logger.info("NFCリーダーを再接続しました")
+                            consecutive_errors = 0
+                            self.set_led('blue', True)
+                            self.update_lcd("Card Reader", "Reconnected")
                     
                     time.sleep(1)
         
