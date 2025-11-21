@@ -333,25 +333,71 @@ class SimpleClient:
         if not self.lcd:
             return
         current_message = MESSAGE_TOUCH_CARD
+        update_count = 0
+        error_count = 0
         while self.running:
             try:
                 if hasattr(self, '_lcd_message'):
                     current_message = self._lcd_message
+                
+                # デバッグ出力（10回ごと）
+                if update_count % 10 == 0:
+                    print(f"[LCD DEBUG] 更新回数: {update_count}, メッセージ: '{current_message}', LCD状態: available={self.lcd.available if self.lcd else False}")
+                
+                # メッセージの長さチェック
+                if len(current_message) > 16:
+                    print(f"[LCD WARN] メッセージが長すぎます: {len(current_message)}文字 - '{current_message}'")
+                    current_message = current_message[:16]
+                
                 self.lcd.show_with_time(current_message)
-            except Exception:
-                # LCDエラー時は無効化
-                self.lcd = None
-                break
+                update_count += 1
+                error_count = 0  # 成功したらエラーカウントをリセット
+                
+            except Exception as e:
+                error_count += 1
+                import traceback
+                print(f"[LCD ERROR #{error_count}] 更新回数: {update_count}, エラー: {e}")
+                print(f"[LCD ERROR] トレースバック:")
+                traceback.print_exc()
+                
+                # エラーが5回連続したら無効化
+                if error_count >= 5:
+                    print(f"[LCD FATAL] エラーが{error_count}回連続 - LCD機能を無効化")
+                    self.lcd = None
+                    break
+                
+                # エラー時は少し待機してから再試行
+                time.sleep(0.5)
             time.sleep(2)
     
     def set_lcd_message(self, message, duration=0):
         """LCDメッセージ設定"""
         if self.lcd:
+            # デバッグ出力
+            print(f"[LCD SET] メッセージ設定: '{message}' (長さ: {len(message)})")
+            
+            # メッセージを16文字に制限
+            if len(message) > 16:
+                print(f"[LCD WARN] メッセージを16文字に切り詰め: '{message}' -> '{message[:16]}'")
+                message = message[:16]
+            
             self._lcd_message = message
             try:
                 self.lcd.show_with_time(message)
-            except Exception:
-                self.lcd = None
+                print(f"[LCD SET] 表示成功")
+            except Exception as e:
+                import traceback
+                print(f"[LCD SET ERROR] エラー: {e}")
+                traceback.print_exc()
+                # エラー時はリセットを試みる
+                try:
+                    print(f"[LCD SET] リセットを試行...")
+                    self.lcd.reset()
+                    time.sleep(0.1)
+                    print(f"[LCD SET] リセット成功")
+                except Exception as reset_error:
+                    print(f"[LCD SET FATAL] リセット失敗: {reset_error} - LCD機能を無効化")
+                    self.lcd = None
         if duration > 0:
             def reset():
                 time.sleep(duration)
@@ -361,6 +407,16 @@ class SimpleClient:
     def process_card(self, card_id, reader_idx):
         """カード処理（シンプル版）"""
         timestamp = datetime.now().isoformat()
+        
+        # デバッグ出力（15回ごと）
+        if self.count % 15 == 0:
+            import sys
+            import gc
+            print(f"[CARD PROCESS #{self.count}] カードID: {card_id}")
+            print(f"[CARD PROCESS] メモリ使用量: {sys.getsizeof(self.history)} bytes (history), {sys.getsizeof(self.attendance_history)} bytes (attendance_history)")
+            print(f"[CARD PROCESS] オブジェクト数: {len(gc.get_objects())}")
+            if self.lcd:
+                print(f"[CARD PROCESS] LCD状態: available={self.lcd.available}, _error_count={getattr(self.lcd, '_error_count', 'N/A')}")
         
         # フィードバック
         self.gpio.sound("card_read")
