@@ -7,6 +7,7 @@
 - nfcpy + PC/SC両対応
 - MACアドレスベースの端末ID自動取得
 - オフライン優先：ローカルDBに保存 → サーバーが利用可能な時に自動送信
+- メモリ使用量モニタリング機能
 """
 
 import time
@@ -15,6 +16,14 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 import threading
+
+# メモリモニタリング
+try:
+    from memory_monitor import MemoryMonitor
+    MEMORY_MONITOR_AVAILABLE = True
+except ImportError:
+    MEMORY_MONITOR_AVAILABLE = False
+    print("[情報] memory_monitor.py未検出 - メモリモニタリング無効")
 
 # 共通モジュールをインポート
 from common_utils import (
@@ -687,6 +696,64 @@ class UnifiedClient:
         # サーバー送信リトライスレッド
         if self.server_url and REQUESTS_AVAILABLE:
             threading.Thread(target=self.retry_pending_records, daemon=True).start()
+        
+        # メンテナンススレッド（定期的なリソースクリーンアップ）
+        threading.Thread(target=self._maintenance_worker, daemon=True).start()
+    
+    # ========================================================================
+    # メンテナンス（定期的なリソースクリーンアップ）
+    # ========================================================================
+    
+    def _maintenance_worker(self):
+        """
+        定期的なメンテナンス処理
+        - LCDのリセット（文字化け対策）
+        - 古いカード履歴のクリーンアップ
+        - ガベージコレクション
+        30分ごとに実行
+        """
+        import gc
+        maintenance_interval = 1800  # 30分 = 1800秒
+        
+        while self.running:
+            time.sleep(maintenance_interval)
+            
+            if not self.running:
+                break
+            
+            try:
+                print("[メンテナンス] 定期メンテナンス実行中...")
+                
+                # 1. LCDリセット（文字化け対策）
+                if self.lcd and self.lcd.available:
+                    try:
+                        self.lcd.reset()
+                        print("[メンテナンス] LCD をリセットしました")
+                    except Exception as e:
+                        print(f"[メンテナンス] LCD リセット失敗: {e}")
+                
+                # 2. 古いカード履歴をクリーンアップ（1時間以上前のエントリを削除）
+                current_time = time.time()
+                old_entries = []
+                with self.lock:
+                    for card_id, last_seen in list(self.history.items()):
+                        if current_time - last_seen > 3600:  # 1時間
+                            old_entries.append(card_id)
+                    
+                    for card_id in old_entries:
+                        del self.history[card_id]
+                
+                if old_entries:
+                    print(f"[メンテナンス] 古いカード履歴を{len(old_entries)}件削除しました")
+                
+                # 3. ガベージコレクション
+                collected = gc.collect()
+                print(f"[メンテナンス] GC実行: {collected}個のオブジェクトを回収")
+                
+                print("[メンテナンス] メンテナンス完了")
+            
+            except Exception as e:
+                print(f"[メンテナンス] エラー: {e}")
     
     # ========================================================================
     # サーバー通信
@@ -930,7 +997,9 @@ class UnifiedClient:
         if server_sent:
             return self._handle_server_success(card_id, timestamp)
         else:
-            return self._handle_server_failure(card_id, timestamp)    def _handle_card_read(self):
+            return self._handle_server_failure(card_id, timestamp)
+    
+    def _handle_card_read(self):
         """カード読み込み時のフィードバック"""
         self.set_lcd_message(MESSAGE_READING, 1)
         self.gpio.sound("card_read")
@@ -1486,6 +1555,11 @@ def main():
     retry_interval = config.get('retry_interval', DEFAULT_RETRY_INTERVAL)
     lcd_settings = config.get('lcd_settings', {})
     
+    # メモリモニタリング設定
+    memory_monitor_enabled = config.get('memory_monitor', {}).get('enabled', False)
+    memory_monitor_interval = config.get('memory_monitor', {}).get('interval', 300)  # デフォルト5分
+    memory_monitor_tracemalloc = config.get('memory_monitor', {}).get('tracemalloc', False)
+    
     print(f"端末ID: {get_mac_address()}")
     print(f"データベース: attendance.db（ローカル保存）")
     if server_url:
@@ -1494,8 +1568,25 @@ def main():
         print("サーバーURL: 未設定（ローカルのみ）")
     if lcd_settings:
         print(f"LCD設定: I2Cアドレス=0x{lcd_settings.get('i2c_addr', 0x27):02X}, バス={lcd_settings.get('i2c_bus', 1)}, バックライト={'ON' if lcd_settings.get('backlight', True) else 'OFF'}")
+    if memory_monitor_enabled:
+        print(f"メモリモニタリング: 有効 (間隔: {memory_monitor_interval}秒, tracemalloc: {'有効' if memory_monitor_tracemalloc else '無効'})")
     print("="*70)
     print()
+    
+    # メモリモニタリング開始
+    memory_monitor = None
+    if memory_monitor_enabled and MEMORY_MONITOR_AVAILABLE:
+        try:
+            memory_monitor = MemoryMonitor(
+                log_file="memory_usage.log",
+                interval=memory_monitor_interval,
+                enable_tracemalloc=memory_monitor_tracemalloc
+            )
+            memory_monitor.start()
+            print("[メモリモニタリング] 開始しました")
+        except Exception as e:
+            print(f"[警告] メモリモニタリング開始失敗: {e}")
+            memory_monitor = None
     
     # クライアント起動
     try:
@@ -1525,6 +1616,14 @@ def main():
             gpio.sound("failure")
         except:
             pass
+    finally:
+        # メモリモニタリング停止
+        if memory_monitor:
+            try:
+                memory_monitor.stop()
+                print("[メモリモニタリング] 停止しました")
+            except:
+                pass
 
 
 if __name__ == "__main__":

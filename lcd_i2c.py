@@ -132,6 +132,9 @@ class LCD_I2C:
         self.available = I2C_AVAILABLE
         self.addr = addr
         self.backlight_enabled = backlight
+        self._error_count = 0
+        self._max_errors = 5
+        self._last_text = ("", "")
         
         if not self.available:
             return
@@ -254,7 +257,9 @@ class LCD_I2C:
             codes = _text_to_lcd_codes(text)
             for code in codes:
                 self._send(code, LCD_MODE_DATA)
-        except Exception:
+            del codes  # メモリ解放
+        except Exception as e:
+            self._handle_error(e)
             pass
     
     def show(self, line1, line2):
@@ -268,14 +273,20 @@ class LCD_I2C:
         if not self.available:
             return
         
+        # 同じテキストの場合はスキップ（不要な書き込みを減らす）
+        if self._last_text == (line1, line2):
+            return
+        
         try:
             self.clear()
             self.set_cursor(0, 0)
             self.write(line1[:16])  # 16文字まで
             self.set_cursor(1, 0)
             self.write(line2[:16])  # 16文字まで
-        except Exception:
-            pass
+            self._last_text = (line1, line2)
+            self._error_count = 0  # 成功したらエラーカウントをリセット
+        except Exception as e:
+            self._handle_error(e)
     
     def show_with_time(self, line2):
         """
@@ -315,6 +326,32 @@ class LCD_I2C:
             self._write_byte(LCD_BACKLIGHT_OFF)
         except Exception:
             pass
+    
+    def _handle_error(self, error):
+        """エラーハンドリング"""
+        self._error_count += 1
+        if self._error_count >= self._max_errors:
+            print(f"[LCD警告] エラーが{self._max_errors}回連続発生 - LCD機能を一時無効化")
+            self.available = False
+        else:
+            # 再初期化を試みる
+            try:
+                time.sleep(0.1)
+                self._init_lcd()
+            except:
+                pass
+    
+    def reset(self):
+        """LCDをリセット（エラーから回復を試みる）"""
+        try:
+            self.available = I2C_AVAILABLE
+            self._error_count = 0
+            if self.available:
+                self._init_lcd()
+                print("[LCD] リセット成功")
+        except Exception as e:
+            print(f"[LCD] リセット失敗: {e}")
+            self.available = False
 
 
 # ============================================================================

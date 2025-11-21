@@ -5,6 +5,11 @@
     "card_read": false,
     "success": true,
     "fail": true
+  },
+  "memory_monitor": {
+    "enabled": false,
+    "interval": 300,
+    "tracemalloc": false
   }
 }
 
