@@ -182,20 +182,16 @@ class LCD_I2C:
             # 上位4ビット送信
             high = mode | (data & 0xF0) | backlight_bit
             self._write_byte(high)
-            time.sleep(0.0005)  # 待機時間を追加
             self._write_byte(high | LCD_ENABLE)
-            time.sleep(0.002)  # 待機時間を延長（文字化け対策）
+            time.sleep(0.001)  # 最適化：0.002秒 → 0.001秒（最小限の待機時間）
             self._write_byte(high & ~LCD_ENABLE)
-            time.sleep(0.0005)  # 待機時間を追加
             
             # 下位4ビット送信
             low = mode | ((data << 4) & 0xF0) | backlight_bit
             self._write_byte(low)
-            time.sleep(0.0005)  # 待機時間を追加
             self._write_byte(low | LCD_ENABLE)
-            time.sleep(0.002)  # 待機時間を延長（文字化け対策）
+            time.sleep(0.001)  # 最適化：0.002秒 → 0.001秒（最小限の待機時間）
             self._write_byte(low & ~LCD_ENABLE)
-            time.sleep(0.0005)  # 待機時間を追加
         except Exception as e:
             # デバッグ出力（エラー時のみ）
             if not hasattr(LCD_I2C, '_send_error_count'):
@@ -235,7 +231,7 @@ class LCD_I2C:
         
         try:
             self._send(LCD_CLEAR, LCD_MODE_COMMAND)
-            time.sleep(0.005)  # 待機時間を延長（文字化け対策）
+            time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒（最小限の待機時間）
         except Exception:
             pass
     
@@ -326,27 +322,27 @@ class LCD_I2C:
                 if LCD_I2C._debug_count % 15 == 0:
                     print(f"[LCD SHOW] clear()実行")
                 self.clear()
-                time.sleep(0.01)  # 待機時間を延長（文字化け対策）
+                time.sleep(0.003)  # 最適化：0.01秒 → 0.003秒
                 
                 if LCD_I2C._debug_count % 15 == 0:
                     print(f"[LCD SHOW] set_cursor(0,0)実行")
                 self.set_cursor(0, 0)
-                time.sleep(0.005)  # 待機時間を延長
+                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
                 
                 if LCD_I2C._debug_count % 15 == 0:
                     print(f"[LCD SHOW] write(line1)実行: '{line1[:16]}'")
                 self.write(line1[:16])  # 16文字まで
-                time.sleep(0.005)  # 待機時間を延長
+                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
                 
                 if LCD_I2C._debug_count % 15 == 0:
                     print(f"[LCD SHOW] set_cursor(1,0)実行")
                 self.set_cursor(1, 0)
-                time.sleep(0.005)  # 待機時間を延長
+                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
                 
                 if LCD_I2C._debug_count % 15 == 0:
                     print(f"[LCD SHOW] write(line2)実行: '{line2[:16]}'")
                 self.write(line2[:16])  # 16文字まで
-                time.sleep(0.01)  # 最終的な待機時間
+                time.sleep(0.003)  # 最適化：0.01秒 → 0.003秒
                 
                 self._last_text = (line1, line2)
                 self._error_count = 0  # 成功したらエラーカウントをリセット
