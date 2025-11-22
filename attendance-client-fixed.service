@@ -28,3 +28,7 @@ Environment="PCSCLITE_CSOCK_NAME=/var/run/pcscd/pcscd.comm"
 [Install]
 WantedBy=multi-user.target
 
+# 注意: このファイルはテンプレートです
+# setup_autostart_complete.sh または setup_autostart_fixed.sh を使用して
+# 実際のパスに合わせてサービスファイルを生成してください
+
