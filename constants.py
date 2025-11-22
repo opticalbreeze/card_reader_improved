@@ -2,7 +2,24 @@
 # -*- coding: utf-8 -*-
 """
 共通定数定義
-ハードコーディングされた値を集約して管理
+
+このモジュールには、プロジェクト全体で使用される定数が定義されています。
+ハードコーディングを避けるため、すべての設定値はここに集約されています。
+
+定数の種類:
+    - ネットワーク設定: サーバーURL、APIエンドポイント
+    - タイムアウト設定: 各種タイムアウト値
+    - リトライ設定: リトライ間隔、最大試行回数
+    - カード読み取り設定: 重複チェック時間、ポーリング間隔
+    - データベース設定: データベースパス、取得上限
+    - メッセージ設定: LCD表示メッセージ
+    - GPIO設定: デフォルトピン番号（詳細はgpio_config.pyを参照）
+
+使用例:
+    from constants import DEFAULT_SERVER_URL, DEFAULT_RETRY_INTERVAL
+    
+    server_url = config.get('server_url', DEFAULT_SERVER_URL)
+    retry_interval = config.get('retry_interval', DEFAULT_RETRY_INTERVAL)
 """
 
 # ============================================================================
@@ -135,4 +152,26 @@ LCD_UPDATE_INTERVAL = 2        # LCD更新間隔（秒）
 LED_BLINK_INTERVAL = 0.5       # LED点滅間隔（秒）
 SERVER_CHECK_INTERVAL = 3600   # サーバー接続チェック間隔（秒）= 1時間
 PENDING_DATA_MIN_AGE = 600     # 未送信データの最小経過時間（秒）= 10分
+
+# メンテナンス設定
+MAINTENANCE_INTERVAL = 1800    # メンテナンス実行間隔（秒）= 30分
+HISTORY_CLEANUP_THRESHOLD = 3600  # カード履歴クリーンアップ閾値（秒）= 1時間
+
+# 待機時間設定
+LED_DEMO_DELAY = 0.5           # LEDデモ表示間隔（秒）
+SERVER_ERROR_FLICKER_INTERVAL = 10  # サーバーエラー時のLEDフリッカ間隔（秒）
+ORANGE_LED_DISPLAY_TIME = 0.5  # オレンジLED表示時間（秒）
+READER_WAIT_BEFORE_EXIT = 300  # リーダー待機後の終了待機時間（秒）= 5分
+
+# PWM設定
+PWM_FREQUENCY = 1000           # PWM周波数（Hz）
+PWM_DUTY_CYCLE = 50            # PWMデューティ比（%）
+
+# GUI設定
+GUI_UPDATE_INTERVAL = 1000     # GUI更新間隔（ミリ秒）
+GUI_WINDOW_WIDTH = 800         # GUIウィンドウ幅（ピクセル）
+GUI_WINDOW_HEIGHT = 600        # GUIウィンドウ高さ（ピクセル）
+
+# Sony RC-S380設定
+SONY_RCS380_VID_PID = 'usb:054c:06c1'  # Sony RC-S380のベンダーID:プロダクトID
 

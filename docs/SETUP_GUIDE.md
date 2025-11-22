@@ -88,19 +88,14 @@ python pi_client.py
 
 ## 🍓 Raspberry Pi版セットアップ
 
-### 必要なもの
+**詳細なセットアップガイドは [Raspberry Pi版セットアップガイド](RASPBERRY_PI_SETUP_GUIDE.md) を参照してください。**
 
-- Raspberry Pi 3以上
-- カードリーダー（Sony RC-S380等）
-- LCDディスプレイ（オプション）
-- GPIO用LED・ブザー（オプション）
-
-### セットアップ手順
+### クイックスタート
 
 #### 1. ファイルのダウンロード
 
 ```bash
-cd ~/Desktop
+cd ~
 git clone https://github.com/opticalbreeze/card_reader_improved.git
 cd card_reader_improved
 ```
@@ -111,14 +106,6 @@ cd card_reader_improved
 chmod +x auto_setup.sh
 ./auto_setup.sh
 ```
-
-**このスクリプトが自動的に行うこと：**
-- システムパッケージのチェックとインストール
-- Python仮想環境の作成
-- 依存ライブラリの自動インストール
-- pcscd（カードリーダーサービス）の起動
-- I2C/GPIO権限の設定
-- 設定ファイルの作成
 
 **所要時間：約5-10分**
 
@@ -152,6 +139,7 @@ nano client_config.json
 
 **手動起動:**
 ```bash
+source venv/bin/activate
 python3 pi_client.py
 ```
 
@@ -160,6 +148,11 @@ python3 pi_client.py
 chmod +x setup_autostart_fixed.sh
 sudo bash setup_autostart_fixed.sh
 ```
+
+### 詳細情報
+
+- [Raspberry Pi版セットアップガイド](RASPBERRY_PI_SETUP_GUIDE.md) - 詳細なセットアップ手順
+- [Windows用とRaspberry Pi用を分離した理由](WHY_SEPARATE_WINDOWS_AND_RASPBERRY_PI.md) - 分離の理由と背景
 
 ---
 
@@ -231,7 +224,13 @@ docker-compose up -d
 
 ## 📚 関連ドキュメント
 
+### Raspberry Pi版
+- [Raspberry Pi版セットアップガイド](RASPBERRY_PI_SETUP_GUIDE.md) - 詳細なセットアップ手順
+- [Windows用とRaspberry Pi用を分離した理由](WHY_SEPARATE_WINDOWS_AND_RASPBERRY_PI.md) - 分離の理由と背景
 - [自動起動設定ガイド](AUTOSTART_GUIDE.md)
+- [PC/SC自動起動問題分析](PCSC_AUTOSTART_ISSUE_ANALYSIS.md)
+
+### 共通
 - [更新ガイド](UPDATE_GUIDE.md)
 - [トラブルシューティング](TROUBLESHOOTING.md)
 - [Git操作ガイド](GIT_GUIDE.md)

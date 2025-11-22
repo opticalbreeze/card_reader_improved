@@ -2,7 +2,26 @@
 # -*- coding: utf-8 -*-
 """
 共通ユーティリティ関数
-重複している関数を統合して管理
+
+このモジュールには、複数のファイルで使用される共通関数が定義されています。
+重複を避けるため、すべての共通処理はここに集約されています。
+
+主要な関数:
+    - get_mac_address(): MACアドレス取得
+    - load_config(): 設定ファイル読み込み
+    - save_config(): 設定ファイル保存
+    - check_server_connection(): サーバー接続チェック
+    - send_attendance_to_server(): サーバーへのデータ送信
+    - get_pcsc_commands(): PC/SCコマンド取得
+    - is_valid_card_id(): カードID検証
+    - is_duplicate_attendance(): 重複打刻チェック
+    - setup_windows_encoding(): Windows用エンコーディング設定
+
+使用例:
+    from common_utils import get_mac_address, load_config
+    
+    terminal_id = get_mac_address()
+    config = load_config()
 """
 
 import uuid
@@ -55,12 +74,18 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     if config_path is None:
         config_path = CONFIG_FILE
     
+    from constants import (
+        DEFAULT_RETRY_INTERVAL,
+        LCD_I2C_ADDR_DEFAULT,
+        LCD_I2C_BUS_DEFAULT
+    )
+    
     default_config = {
         "server_url": DEFAULT_SERVER_URL,
-        "retry_interval": 600,
+        "retry_interval": DEFAULT_RETRY_INTERVAL,
         "lcd_settings": {
-            "i2c_addr": 0x27,
-            "i2c_bus": 1,
+            "i2c_addr": LCD_I2C_ADDR_DEFAULT,
+            "i2c_bus": LCD_I2C_BUS_DEFAULT,
             "backlight": True
         },
         "beep_settings": {

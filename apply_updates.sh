@@ -65,8 +65,4 @@ echo ""
 echo -e "${BLUE}ログを確認:${NC}"
 echo "  sudo journalctl -u attendance-client-fixed.service -f"
 echo ""
-echo -e "${BLUE}プロセス環境を検証（オプション）:${NC}"
-echo "  chmod +x check_actual_difference.sh"
-echo "  ./check_actual_difference.sh"
-echo ""
 

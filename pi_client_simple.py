@@ -1,11 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ラズパイ版シンプルクライアント
-- 最小限の機能のみ（カード読み取り、サーバー送信、ローカル保存）
-- スレッド数を削減（3-5個）
-- エラーハンドリングを簡素化
-- LCD/GPIOはオプション（エラー時は無効化）
+Raspberry Pi版シンプルクライアント
+
+このモジュールは、Raspberry Pi環境で動作する軽量版ICカード打刻クライアントです。
+`pi_client.py`（統合版）よりも機能を削減し、シンプルな構造になっています。
+
+主な特徴:
+    - 最小限の機能: カード読み取り、サーバー送信、ローカル保存のみ
+    - スレッド数削減: 3-5個のスレッドで動作（統合版は10個以上）
+    - エラーハンドリング簡素化: 基本的なエラーハンドリングのみ
+    - オプション機能: LCD/GPIOはエラー時は自動的に無効化
+
+使用方法:
+    python3 pi_client_simple.py
+
+統合版との違い:
+    - GUI機能なし
+    - メモリモニタリング機能なし
+    - メンテナンススレッドなし
+    - エラーハンドリングが簡素化
+
+推奨用途:
+    - リソースが限られた環境
+    - シンプルな動作が求められる環境
+    - デバッグやテスト用途
+
+依存関係:
+    - common_utils.py: 共通ユーティリティ関数
+    - constants.py: 定数定義
+    - gpio_config.py: GPIO設定（オプション）
+    - lcd_i2c.py: LCD制御（オプション）
 """
 
 import time
@@ -65,10 +90,27 @@ except ImportError:
 
 # GPIO設定（オプション）
 try:
-    from gpio_config import BUZZER_PIN, LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN, BUZZER_PATTERNS, LED_COLORS
+    from gpio_config import (
+        BUZZER_PIN,
+        LED_RED_PIN,
+        LED_GREEN_PIN,
+        LED_BLUE_PIN,
+        BUZZER_PATTERNS,
+        LED_COLORS
+    )
 except ImportError:
-    BUZZER_PIN = 18
-    LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN = 13, 19, 26
+    # デフォルト設定（gpio_config.pyが見つからない場合）
+    from constants import (
+        GPIO_BUZZER_PIN,
+        GPIO_LED_RED_PIN,
+        GPIO_LED_GREEN_PIN,
+        GPIO_LED_BLUE_PIN
+    )
+    BUZZER_PIN = GPIO_BUZZER_PIN
+    LED_RED_PIN = GPIO_LED_RED_PIN
+    LED_GREEN_PIN = GPIO_LED_GREEN_PIN
+    LED_BLUE_PIN = GPIO_LED_BLUE_PIN
+    # デフォルトのブザーパターンとLED色（最小限）
     BUZZER_PATTERNS = {
         "card_read": [(0.05, 2000)],
         "success": [(0.1, 2500), (0.05, 2500), (0.1, 2500)],

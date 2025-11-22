@@ -176,10 +176,22 @@ pip3 install -r requirements_unified.txt
 
 ## 📖 詳細ドキュメント
 
+### 👥 ユーザー向け
 - [セットアップガイド](docs/SETUP_GUIDE.md) - Windows/Raspberry Piのセットアップ手順
+- [Raspberry Pi版セットアップガイド](docs/RASPBERRY_PI_SETUP_GUIDE.md) - Raspberry Pi版の詳細なセットアップ手順
 - [自動起動設定](docs/AUTOSTART_GUIDE.md) - 自動起動の設定方法
 - [更新ガイド](docs/UPDATE_GUIDE.md) - 最新版への更新方法
 - [トラブルシューティング](docs/TROUBLESHOOTING.md) - よくある問題と解決方法
+
+### 👨‍💻 開発者向け
+- [開発者向けREADME](docs/README_FOR_DEVELOPERS.md) - 開発者向けの包括的なガイド
+- [コード構造ガイド](docs/CODE_STRUCTURE_GUIDE.md) - コード構造の詳細説明
+- [開発者ガイド](docs/DEVELOPER_GUIDE.md) - コーディング規約とベストプラクティス
+- [Windows用とRaspberry Pi用を分離した理由](docs/WHY_SEPARATE_WINDOWS_AND_RASPBERRY_PI.md) - 分離の理由と背景
+- [Raspberry Pi版クラッシュ原因の実際の分析](docs/RASPBERRY_PI_CRASH_ANALYSIS.md) - クラッシュ原因の詳細分析
+
+### 🔧 技術詳細
+- [PC/SC自動起動問題分析](docs/PCSC_AUTOSTART_ISSUE_ANALYSIS.md) - 自動起動時の問題と解決方法
 - [Git操作ガイド](docs/GIT_GUIDE.md) - GitHubへのpush/pull方法
 - [システム概要](SYSTEM_OVERVIEW.md) - システム全体の詳細説明
 - [勤怠システム詳細](README_ATTENDANCE.md) - 勤怠管理機能の詳細

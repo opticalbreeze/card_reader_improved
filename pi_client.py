@@ -1,13 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ラズパイ統合版クライアント（ハイブリッド版）
-- LCD I2C 1602対応
-- GPIO制御（LED + ブザー）
-- nfcpy + PC/SC両対応
-- MACアドレスベースの端末ID自動取得
-- オフライン優先：ローカルDBに保存 → サーバーが利用可能な時に自動送信
-- メモリ使用量モニタリング機能
+Raspberry Pi版クライアント（統合版）
+
+このモジュールは、Raspberry Pi環境で動作するICカード打刻クライアントです。
+
+主な機能:
+    - LCD I2C 1602対応: I2C接続のLCDディスプレイに状態を表示
+    - GPIO制御: RGB LEDと圧電ブザーで視覚・聴覚フィードバック
+    - マルチリーダー対応: nfcpyとPC/SCの両方に対応
+    - 端末ID自動取得: MACアドレスを端末IDとして使用
+    - オフライン優先: ローカルDBに保存後、サーバーが利用可能な時に自動送信
+    - メモリモニタリング: 長時間実行時のメモリ使用量を監視（オプション）
+
+使用方法:
+    python3 pi_client.py
+
+依存関係:
+    - common_utils.py: 共通ユーティリティ関数
+    - constants.py: 定数定義
+    - gpio_config.py: GPIO設定（オプション）
+    - lcd_i2c.py: LCD制御（オプション）
+
+注意事項:
+    - GPIO機能を使用するには、ユーザーをgpioグループに追加する必要があります
+    - LCD機能を使用するには、I2Cが有効になっている必要があります
+    - PC/SC機能を使用するには、pcscdサービスが起動している必要があります
 """
 
 import time
@@ -31,7 +49,6 @@ from common_utils import (
     load_config,
     check_server_connection,
     send_attendance_to_server,
-    setup_windows_encoding,
     get_pcsc_commands,
     is_valid_card_id
 )
@@ -56,9 +73,6 @@ from constants import (
     MESSAGE_NO_READER,
     RETRY_CHECK_INTERVAL
 )
-
-# Windows環境での文字化け対策
-setup_windows_encoding()
 
 # HTTP通信（サーバー送信用）
 try:
@@ -111,11 +125,27 @@ except ImportError:
 
 # GPIO設定をインポート
 try:
-    from gpio_config import *
+    from gpio_config import (
+        BUZZER_PIN,
+        LED_RED_PIN,
+        LED_GREEN_PIN,
+        LED_BLUE_PIN,
+        BUZZER_PATTERNS,
+        LED_COLORS
+    )
 except ImportError:
-    # デフォルト設定
-    BUZZER_PIN = 18
-    LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN = 13, 19, 26
+    # デフォルト設定（gpio_config.pyが見つからない場合）
+    from constants import (
+        GPIO_BUZZER_PIN,
+        GPIO_LED_RED_PIN,
+        GPIO_LED_GREEN_PIN,
+        GPIO_LED_BLUE_PIN
+    )
+    BUZZER_PIN = GPIO_BUZZER_PIN
+    LED_RED_PIN = GPIO_LED_RED_PIN
+    LED_GREEN_PIN = GPIO_LED_GREEN_PIN
+    LED_BLUE_PIN = GPIO_LED_BLUE_PIN
+    # デフォルトのブザーパターンとLED色
     BUZZER_PATTERNS = {
         "startup": [(0.2, 1000), (0.1, 1000), (0.2, 1000)],
         "connect": [(0.1, 1500), (0.1, 1500), (0.1, 1500)],
@@ -170,9 +200,10 @@ class GPIO_Control:
             
             # PWM設定（LED用）
             self.pwms = [
-                GPIO.PWM(LED_RED_PIN, 1000),
-                GPIO.PWM(LED_GREEN_PIN, 1000),
-                GPIO.PWM(LED_BLUE_PIN, 1000)
+                from constants import PWM_FREQUENCY
+                GPIO.PWM(LED_RED_PIN, PWM_FREQUENCY),
+                GPIO.PWM(LED_GREEN_PIN, PWM_FREQUENCY),
+                GPIO.PWM(LED_BLUE_PIN, PWM_FREQUENCY)
             ]
             for i, pwm in enumerate(self.pwms):
                 pwm.start(0)
@@ -215,24 +246,28 @@ class GPIO_Control:
         for duration, freq in BUZZER_PATTERNS.get(pattern, [(0.1, 1000)]):
             try:
                 # PWMオブジェクトを作成
+                from constants import PWM_DUTY_CYCLE
                 pwm = GPIO.PWM(BUZZER_PIN, freq)
-                pwm.start(50)  # デューティ比50%
+                pwm.start(PWM_DUTY_CYCLE)  # デューティ比
                 time.sleep(duration)
                 pwm.stop()
                 # PWMオブジェクトを削除してリソースを解放
                 del pwm
-                time.sleep(0.05)
+                from constants import CARD_DETECTION_SLEEP
+                time.sleep(CARD_DETECTION_SLEEP)
             except RuntimeError as e:
                 if "already exists" in str(e):
                     # 既存のPWMをクリーンアップして再試行
                     try:
                         GPIO.setup(BUZZER_PIN, GPIO.OUT)
                         pwm = GPIO.PWM(BUZZER_PIN, freq)
-                        pwm.start(50)
+                        from constants import PWM_DUTY_CYCLE
+                        pwm.start(PWM_DUTY_CYCLE)
                         time.sleep(duration)
                         pwm.stop()
                         del pwm
-                        time.sleep(0.05)
+                        from constants import CARD_DETECTION_SLEEP
+                time.sleep(CARD_DETECTION_SLEEP)
                     except:
                         pass
             except Exception as e:
@@ -277,11 +312,12 @@ class GPIO_Control:
         self.blink_running = True
         
         def worker():
+            from constants import LED_BLINK_INTERVAL
             while self.blink_running:
                 self.led("orange")
-                time.sleep(0.5)
+                time.sleep(LED_BLINK_INTERVAL)
                 self.led("off")
-                time.sleep(0.5)
+                time.sleep(LED_BLINK_INTERVAL)
         
         threading.Thread(target=worker, daemon=True).start()
     
@@ -655,10 +691,11 @@ class UnifiedClient:
         
         self.check_server_connection()
         if not self.server_available:
-            # サーバー接続失敗：3秒LEDエラー表示+ブザー
+            # サーバー接続失敗：LEDエラー表示+ブザー
+            from constants import LED_DEMO_DELAY
             self.gpio.led("red")
             self.gpio.sound("failure")
-            time.sleep(3)
+            time.sleep(LED_DEMO_DELAY * 6)  # 3秒（0.5秒の6倍）
             # 10秒ごとの赤LEDフリッカ開始
             self.server_check_running = True
             threading.Thread(target=self.server_error_flicker, daemon=True).start()
@@ -669,12 +706,13 @@ class UnifiedClient:
     
     def _led_startup_demo(self):
         """起動時LEDデモ（赤→青→緑を順番に点灯）"""
+        from constants import LED_DEMO_DELAY
         self.gpio.led("red")
-        time.sleep(0.5)
+        time.sleep(LED_DEMO_DELAY)
         self.gpio.led("blue")
-        time.sleep(0.5)
+        time.sleep(LED_DEMO_DELAY)
         self.gpio.led("green")
-        time.sleep(0.5)
+        time.sleep(LED_DEMO_DELAY)
         # デモ後は確実に消灯（_init_server()で緑に設定される）
         self.gpio.led("off")
         time.sleep(0.1)  # 確実に消灯するための短い待機
@@ -684,8 +722,9 @@ class UnifiedClient:
         if not self.lcd:
             return
         
+        from constants import LCD_UPDATE_INTERVAL
         self.lcd.show_with_time(MESSAGE_STARTING)
-        time.sleep(2)
+        time.sleep(LCD_UPDATE_INTERVAL)
         self.lcd.show_with_time(MESSAGE_TOUCH_CARD)
     
     def _start_background_threads(self):
@@ -713,7 +752,8 @@ class UnifiedClient:
         30分ごとに実行
         """
         import gc
-        maintenance_interval = 1800  # 30分 = 1800秒
+        from constants import SERVER_CHECK_INTERVAL
+        maintenance_interval = SERVER_CHECK_INTERVAL * 0.5  # サーバーチェック間隔の半分（30分）
         
         while self.running:
             time.sleep(maintenance_interval)
@@ -737,7 +777,8 @@ class UnifiedClient:
                 old_entries = []
                 with self.lock:
                     for card_id, last_seen in list(self.history.items()):
-                        if current_time - last_seen > 3600:  # 1時間
+                        from constants import MAX_RETRY_INTERVAL
+                        if current_time - last_seen > MAX_RETRY_INTERVAL:  # 1時間
                             old_entries.append(card_id)
                     
                     for card_id in old_entries:
@@ -847,10 +888,11 @@ class UnifiedClient:
                     self.gpio.led("green")
                     return
                 # 赤LEDフリッカ
+                from constants import LED_DEMO_DELAY, SERVER_ERROR_FLICKER_INTERVAL
                 self.gpio.led("red")
-                time.sleep(0.5)
+                time.sleep(LED_DEMO_DELAY)
                 self.gpio.led("off")
-            time.sleep(10)
+            time.sleep(SERVER_ERROR_FLICKER_INTERVAL)
     
     def retry_pending_records(self):
         """
@@ -906,12 +948,13 @@ class UnifiedClient:
         if not self.lcd:
             return
         
+        from constants import LCD_UPDATE_INTERVAL
         while self.running:
             try:
                 self.lcd.show_with_time(self.current_message)
             except Exception:
                 pass
-            time.sleep(2)
+            time.sleep(LCD_UPDATE_INTERVAL)
     
     def set_lcd_message(self, message, duration=0):
         """
@@ -1021,9 +1064,10 @@ class UnifiedClient:
         if record_id:
             self.set_lcd_message(MESSAGE_SAVED_LOCAL, 1)
             self.gpio.sound("failure")
-            # サーバー書き込みできない場合：0.5秒オレンジLED表示
+            # サーバー書き込みできない場合：オレンジLED表示
+            from constants import ORANGE_LED_DISPLAY_TIME
             self.gpio.led("orange")
-            time.sleep(0.5)
+            time.sleep(ORANGE_LED_DISPLAY_TIME)
             # 未送信データがある場合はオレンジのまま、なければ緑に戻す
             pending = self.database.get_pending_records()
             if not pending:
@@ -1210,7 +1254,9 @@ class UnifiedClient:
             if nfcpy_count == 0:
                 # Sony RC-S380
                 try:
-                    clf = nfc.ContactlessFrontend('usb:054c:06c1')
+                    # Sony RC-S380のベンダーID:プロダクトID
+                    SONY_RCS380_VID_PID = 'usb:054c:06c1'
+                    clf = nfc.ContactlessFrontend(SONY_RCS380_VID_PID)
                     if clf:
                         nfcpy_devices.append('usb:054c:06c1')
                         nfcpy_count += 1
@@ -1268,7 +1314,9 @@ class UnifiedClient:
                             break
                     except:
                         try:
-                            clf = nfc.ContactlessFrontend('usb:054c:06c1')
+                            # Sony RC-S380のベンダーID:プロダクトID
+                    SONY_RCS380_VID_PID = 'usb:054c:06c1'
+                    clf = nfc.ContactlessFrontend(SONY_RCS380_VID_PID)
                             if clf:
                                 nfcpy_devices.append('usb:054c:06c1')
                                 nfcpy_count += 1
@@ -1303,8 +1351,10 @@ class UnifiedClient:
                     self.gpio.led("red")
                 # 自動起動時の無限ループを防ぐため、正常終了（exit code 0）
                 # systemdのRestart=alwaysを避けるため、長時間待機してから終了
-                print("[待機] 5分間待機してから終了します（リーダー接続を待機）...")
-                time.sleep(300)  # 5分待機
+                from constants import READER_DETECTION_MAX_WAIT
+                wait_minutes = READER_DETECTION_MAX_WAIT // 60
+                print(f"[待機] {wait_minutes}分間待機してから終了します（リーダー接続を待機）...")
+                time.sleep(READER_DETECTION_MAX_WAIT // 2)  # 最大待機時間の半分
                 return
         
         print(f"\n[検出] nfcpy:{nfcpy_count}台 / PC/SC:{pcsc_count}台")
@@ -1340,7 +1390,8 @@ class UnifiedClient:
         try:
             # メインスレッドは待機
             while self.running:
-                time.sleep(0.5)
+                from constants import MAIN_LOOP_SLEEP
+                time.sleep(MAIN_LOOP_SLEEP)
         
         except KeyboardInterrupt:
             print("\n\n" + "="*70)
@@ -1397,7 +1448,8 @@ if TKINTER_AVAILABLE:
             self.client = client
             self.root = tk.Tk()
             self.root.title("勤怠管理システム - ラズパイ版")
-            self.root.geometry("800x600")
+            from constants import GUI_WINDOW_WIDTH, GUI_WINDOW_HEIGHT
+            self.root.geometry(f"{GUI_WINDOW_WIDTH}x{GUI_WINDOW_HEIGHT}")
             
             # 変数
             self.retry_interval_var = tk.IntVar(value=client.retry_interval)
@@ -1405,8 +1457,9 @@ if TKINTER_AVAILABLE:
             self.setup_ui()
             self.update_status()
             
-            # 定期的な更新（1秒ごと）
-            self.root.after(1000, self.update_status_loop)
+            # 定期的な更新
+            from constants import GUI_UPDATE_INTERVAL
+            self.root.after(GUI_UPDATE_INTERVAL, self.update_status_loop)
         
         def setup_ui(self):
             """UIを構築"""
@@ -1436,7 +1489,8 @@ if TKINTER_AVAILABLE:
             retry_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=5)
             
             ttk.Label(retry_frame, text="リトライ間隔（秒）:").grid(row=0, column=0, sticky=tk.W)
-            retry_spinbox = ttk.Spinbox(retry_frame, from_=60, to=3600, textvariable=self.retry_interval_var, width=10)
+            from constants import MIN_RETRY_INTERVAL, MAX_RETRY_INTERVAL
+            retry_spinbox = ttk.Spinbox(retry_frame, from_=MIN_RETRY_INTERVAL, to=MAX_RETRY_INTERVAL, textvariable=self.retry_interval_var, width=10)
             retry_spinbox.grid(row=0, column=1, padx=5)
             retry_spinbox.bind("<Return>", self.update_retry_interval)
             
@@ -1508,7 +1562,8 @@ if TKINTER_AVAILABLE:
             for item in self.pending_tree.get_children():
                 self.pending_tree.delete(item)
             
-            pending_records = self.client.database.get_pending_records(limit=100)
+            from constants import DB_SEARCH_LIMIT
+            pending_records = self.client.database.get_pending_records(limit=DB_SEARCH_LIMIT)
             for record in pending_records:
                 record_id, idm, timestamp, terminal_id, retry_count = record
                 self.pending_tree.insert("", tk.END, values=(
@@ -1525,7 +1580,8 @@ if TKINTER_AVAILABLE:
         def update_status_loop(self):
             """ステータス更新ループ"""
             self.update_status()
-            self.root.after(1000, self.update_status_loop)
+            from constants import GUI_UPDATE_INTERVAL
+            self.root.after(GUI_UPDATE_INTERVAL, self.update_status_loop)
         
         def update_retry_interval(self, event=None):
             """リトライ間隔を更新"""
@@ -1557,7 +1613,8 @@ def main():
     
     # メモリモニタリング設定
     memory_monitor_enabled = config.get('memory_monitor', {}).get('enabled', False)
-    memory_monitor_interval = config.get('memory_monitor', {}).get('interval', 300)  # デフォルト5分
+    from constants import PENDING_DATA_MIN_AGE
+    memory_monitor_interval = config.get('memory_monitor', {}).get('interval', PENDING_DATA_MIN_AGE // 2)  # デフォルト5分（10分の半分）
     memory_monitor_tracemalloc = config.get('memory_monitor', {}).get('tracemalloc', False)
     
     print(f"端末ID: {get_mac_address()}")

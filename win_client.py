@@ -1,12 +1,30 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Windows版GUIクライアント（改善版）
-- nfcpy + PCSC両対応
-- PCスピーカー対応
-- MACアドレスベースの端末ID自動取得
-- サーバー監視機能
-- 自動リトライ機能
+Windows版GUIクライアント
+
+このモジュールは、Windows環境で動作するICカード打刻クライアントです。
+
+主な機能:
+    - GUI表示: tkinterを使用したグラフィカルユーザーインターフェース
+    - マルチリーダー対応: nfcpyとPC/SCの両方に対応
+    - PCスピーカー対応: 音声フィードバック（起動音、読み取り音、成功/失敗音）
+    - 端末ID自動取得: MACアドレスを端末IDとして使用
+    - サーバー監視: 定期的にサーバー接続状態をチェック
+    - 自動リトライ: 未送信データを定期的に再送信
+
+使用方法:
+    python win_client.py
+
+依存関係:
+    - common_utils.py: 共通ユーティリティ関数
+    - constants.py: 定数定義
+    - tkinter: GUIライブラリ（Python標準ライブラリ）
+    - winsound: PCスピーカー制御（Windows標準ライブラリ）
+
+注意事項:
+    - Windows専用です。Raspberry Piでは動作しません
+    - pyscardのインストールには、Microsoft Visual C++ Build Toolsが必要な場合があります
 """
 
 import time
@@ -1006,7 +1024,8 @@ def main():
     
     # 設定読み込み
     config = load_config()
-    server_url = config.get('server_url', 'http://192.168.1.31:5000')
+    from constants import DEFAULT_SERVER_URL
+    server_url = config.get('server_url', DEFAULT_SERVER_URL)
     
     print(f"サーバーURL: {server_url}")
     print(f"端末ID: {get_mac_address()}")
