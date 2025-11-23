@@ -244,7 +244,7 @@ def send_attendance_to_server(
 
 
 # ============================================================================
-# エンコーディング設定（Windows用）
+# エンコーディング設定
 # ============================================================================
 
 def setup_windows_encoding():
@@ -268,6 +268,45 @@ def setup_windows_encoding():
     
     # 環境変数でUTF-8を強制
     os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+
+def setup_raspberry_encoding():
+    """
+    Raspberry Pi環境での文字化け対策: UTF-8出力を強制
+    """
+    if sys.platform == 'win32':
+        return
+    
+    try:
+        # 環境変数でエンコーディングを設定
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        os.environ['PYTHONUTF8'] = '1'
+        
+        # ロケール設定を確認・設定
+        try:
+            import locale
+            locale.setlocale(locale.LC_ALL, 'ja_JP.UTF-8')
+        except (locale.Error, ImportError):
+            try:
+                locale.setlocale(locale.LC_ALL, 'C.UTF-8')
+            except (locale.Error, ImportError):
+                # ロケール設定失敗時はデフォルトを使用
+                pass
+        
+        # 標準出力/標準エラーのエンコーディングを設定（Python 3.7以降）
+        if hasattr(sys.stdout, 'reconfigure'):
+            try:
+                sys.stdout.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+            except Exception:
+                pass
+        if hasattr(sys.stderr, 'reconfigure'):
+            try:
+                sys.stderr.reconfigure(encoding='utf-8', errors='replace', line_buffering=True)
+            except Exception:
+                pass
+    except Exception:
+        # エンコーディング設定失敗時も実行を続ける
+        pass
 
 
 # ============================================================================

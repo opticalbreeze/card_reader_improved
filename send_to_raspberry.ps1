@@ -2,9 +2,9 @@
 # 使用方法: .\send_to_raspberry.ps1
 
 param(
-    [string]$RaspberryIP = "",
-    [string]$Username = "pi",
-    [string]$RemotePath = "~/card_reader_improved"
+    [string]$RaspberryIP = "192.168.1.74",
+    [string]$Username = "raspberry",
+    [string]$RemotePath = "/home/raspberry/Desktop/card_reader_improved"
 )
 
 # 接続情報の確認
@@ -28,6 +28,7 @@ Write-Host ""
 
 # 転送するファイル
 $FilesToTransfer = @(
+    "pi_client.py",
     "pi_client_simple.py",
     "start_pi_simple.sh",
     "common_utils.py",
@@ -90,22 +91,12 @@ foreach ($file in $FilesToTransfer) {
     if (Test-Path $file) {
         Write-Host "転送中: $file" -ForegroundColor Cyan
         
-        if ($scpCommand -eq "scp") {
-            # OpenSSHのscpを使用
-            $scpArgs = @(
-                $file
-                "${Username}@${RaspberryIP}:${RemotePath}/"
-            )
-            & scp $scpArgs
-        } else {
-            # PuTTYのpscpを使用
-            $pscpArgs = @(
-                "-scp"
-                $file
-                "${Username}@${RaspberryIP}:${RemotePath}/"
-            )
-            & $scpCommand $pscpArgs
-        }
+        # OpenSSHのscpを使用
+        $scpArgs = @(
+            $file
+            "${Username}@${RaspberryIP}:${RemotePath}/"
+        )
+        scp @scpArgs
         
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[エラー] $file の転送に失敗しました" -ForegroundColor Red

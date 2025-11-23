@@ -158,8 +158,8 @@ else:
 ```
 card_reader_improved/
 ├── win_client.py              # Windows専用クライアント
-├── pi_client.py               # Raspberry Pi専用クライアント（統合版）
-├── pi_client_simple.py        # Raspberry Pi専用クライアント（シンプル版）
+├── pi_client.py               # Raspberry Pi専用クライアント（メイン）
+├── pi_client_full_backup.py   # 旧統合版（バックアップ・参考用）
 ├── common_utils.py            # 共通ユーティリティ関数
 ├── constants.py               # 共通定数
 ├── requirements_windows.txt   # Windows用依存関係

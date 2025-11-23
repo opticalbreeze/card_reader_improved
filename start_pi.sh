@@ -140,6 +140,7 @@ fi
 echo "[確認] 使用するPython: $PYTHON_EXEC"
 echo ""
 
+# pi_client.pyを起動（仮想環境が自動的に有効化される）
 exec "$PYTHON_EXEC" pi_client.py
 
 # 終了時

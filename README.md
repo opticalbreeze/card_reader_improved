@@ -53,29 +53,25 @@ ICカードリーダーを使った勤怠打刻システムです。WindowsとRa
 ## 📁 プロジェクト構成
 
 ```
-simple_card_reader-main/
-├── client_card_reader.py              # Windowsクライアント（CUI版）
-├── client_card_reader_windows_gui.py  # Windowsクライアント（GUI版）
-├── client_card_reader_unified.py      # ラズパイ統合版
-├── client_config_gui.py               # 設定GUI
-├── gpio_config.py                     # GPIO設定（ラズパイ用）
-├── lcd_i2c.py                         # LCD制御（ラズパイ用）
-├── start_client.bat                   # Windows CUI版起動
-├── start_windows_gui.bat              # Windows GUI版起動
-├── start_unified.sh                   # ラズパイ統合版起動
-├── start_client_config.bat            # 設定GUI起動
-├── requirements_windows.txt           # Windows依存パッケージ
-├── requirements_unified.txt           # ラズパイ依存パッケージ
-├── server/                            # サーバー側プログラム
-│   ├── server.py                      # Flaskサーバー
-│   ├── start_server.bat               # サーバー起動
-│   ├── requirements_server.txt        # サーバー依存パッケージ
-│   ├── docker-compose.yml             # Docker構成
-│   ├── Dockerfile                     # Dockerイメージ
-│   └── templates/                     # HTMLテンプレート
-├── SETUP_GUIDE.md                     # セットアップガイド
-├── SYSTEM_OVERVIEW.md                 # システム概要
-└── README_ATTENDANCE.md               # 詳細説明
+card_reader_improved/
+├── win_client.py              # Windows版クライアント（GUI付き）
+├── pi_client.py               # Raspberry Pi版クライアント（メイン）
+├── config.py                  # 設定GUI（サーバーURL・LCD設定）
+├── common_utils.py            # 共通ユーティリティ関数
+├── constants.py               # 共通定数定義
+├── gpio_config.py             # GPIO設定（Raspberry Pi用）
+├── lcd_i2c.py                 # LCD制御（Raspberry Pi用）
+├── start_win.bat              # Windows版起動
+├── start_pi.sh                # Raspberry Pi版起動
+├── requirements_windows.txt   # Windows依存パッケージ
+├── requirements_unified.txt   # Raspberry Pi依存パッケージ
+├── client_config.json         # クライアント設定ファイル
+├── client_config_sample.json  # 設定ファイルサンプル
+└── docs/                      # ドキュメント
+    ├── SETUP_GUIDE.md         # セットアップガイド
+    ├── RASPBERRY_PI_SETUP_GUIDE.md  # Raspberry Pi詳細セットアップ
+    ├── FILE_STRUCTURE.md      # ファイル構成ガイド
+    └── ...
 ```
 
 ## 🚀 クイックスタート
@@ -113,11 +109,11 @@ start_client_config.bat  # 設定（初回のみ）
 start_windows_gui.bat    # GUI版起動
 ```
 
-#### Raspberry Pi（統合版）
+#### Raspberry Pi版
 ```bash
 pip3 install -r requirements_unified.txt
-./start_client_config.bat  # 設定（初回のみ）
-./start_unified.sh         # 統合版起動
+python3 config.py  # 設定（初回のみ）
+./start_pi.sh      # クライアント起動
 ```
 
 ## 🔧 対応カードリーダー
@@ -182,6 +178,8 @@ pip3 install -r requirements_unified.txt
 - [自動起動設定](docs/AUTOSTART_GUIDE.md) - 自動起動の設定方法
 - [更新ガイド](docs/UPDATE_GUIDE.md) - 最新版への更新方法
 - [トラブルシューティング](docs/TROUBLESHOOTING.md) - よくある問題と解決方法
+- [ファイル構成ガイド](docs/FILE_STRUCTURE.md) - プロジェクトのファイル構成
+- [プロジェクト構造](docs/PROJECT_STRUCTURE.md) - 開発方針とプロジェクト構造
 
 ### 👨‍💻 開発者向け
 - [開発者向けREADME](docs/README_FOR_DEVELOPERS.md) - 開発者向けの包括的なガイド

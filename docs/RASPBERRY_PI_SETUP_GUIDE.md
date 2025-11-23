@@ -249,33 +249,20 @@ nano client_config.json
 
 ### 手動起動
 
-#### 統合版（推奨）
-
 ```bash
 cd ~/card_reader_improved
 source venv/bin/activate
 python3 pi_client.py
 ```
 
-#### シンプル版（軽量）
-
-```bash
-cd ~/card_reader_improved
-source venv/bin/activate
-python3 pi_client_simple.py
-```
-
 ### 起動スクリプトを使用
 
 ```bash
-# 統合版
 chmod +x start_pi.sh
 ./start_pi.sh
-
-# シンプル版
-chmod +x start_pi_simple.sh
-./start_pi_simple.sh
 ```
+
+**注意**: Raspberry Pi版は`pi_client.py`のみを使用します。`pi_client_simple.py`は削除予定です。
 
 ---
 

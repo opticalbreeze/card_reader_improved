@@ -74,14 +74,8 @@ python config.py
 
 #### 5. クライアントの起動
 
-**GUI版（推奨）:**
 ```cmd
 python win_client.py
-```
-
-**CUI版:**
-```cmd
-python pi_client.py
 ```
 
 ---
@@ -136,6 +130,12 @@ nano client_config.json
 保存：`Ctrl+O` → `Enter` → `Ctrl+X`
 
 #### 5. クライアントの起動
+
+**起動スクリプトを使用（推奨）:**
+```bash
+chmod +x start_pi.sh
+./start_pi.sh
+```
 
 **手動起動:**
 ```bash

@@ -265,23 +265,9 @@ class LCD_I2C:
         
         try:
             codes = _text_to_lcd_codes(text)
-            # デバッグカウンター
-            if not hasattr(LCD_I2C, '_write_count'):
-                LCD_I2C._write_count = 0
-            LCD_I2C._write_count += 1
-            
-            # デバッグ出力（15回ごと）
-            if LCD_I2C._write_count % 15 == 0:
-                print(f"[LCD WRITE #{LCD_I2C._write_count}] text='{text}', codes={codes[:10]}... (len={len(codes)})")
-            
-            for i, code in enumerate(codes):
-                if LCD_I2C._write_count % 15 == 0 and i < 5:
-                    print(f"[LCD WRITE] code[{i}]=0x{code:02X} ({code})")
+            for code in codes:
                 self._send(code, LCD_MODE_DATA)
             del codes  # メモリ解放
-            
-            if LCD_I2C._write_count % 15 == 0:
-                print(f"[LCD WRITE] 書き込み完了")
         except Exception as e:
             import traceback
             print(f"[LCD WRITE ERROR] text='{text}', エラー: {e}")
@@ -302,57 +288,25 @@ class LCD_I2C:
         
         # ロックで排他制御（マルチスレッド問題対策）
         with self._lock:
-            # デバッグカウンター（クラス変数として管理）
-            if not hasattr(LCD_I2C, '_debug_count'):
-                LCD_I2C._debug_count = 0
-            LCD_I2C._debug_count += 1
-            
-            # 15回ごとにデバッグ出力（文字化け発生時の調査用）
-            if LCD_I2C._debug_count % 15 == 0:
-                print(f"[LCD SHOW #{LCD_I2C._debug_count}] line1='{line1}' (len={len(line1)}), line2='{line2}' (len={len(line2)})")
-                print(f"[LCD SHOW] _last_text={self._last_text}, _error_count={self._error_count}")
-            
             # 同じテキストの場合はスキップ（不要な書き込みを減らす）
             if self._last_text == (line1, line2):
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] 同じテキストのためスキップ")
                 return
             
             try:
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] clear()実行")
                 self.clear()
-                time.sleep(0.003)  # 最適化：0.01秒 → 0.003秒
-                
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] set_cursor(0,0)実行")
+                time.sleep(0.003)
                 self.set_cursor(0, 0)
-                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
-                
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] write(line1)実行: '{line1[:16]}'")
+                time.sleep(0.002)
                 self.write(line1[:16])  # 16文字まで
-                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
-                
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] set_cursor(1,0)実行")
+                time.sleep(0.002)
                 self.set_cursor(1, 0)
-                time.sleep(0.002)  # 最適化：0.005秒 → 0.002秒
-                
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] write(line2)実行: '{line2[:16]}'")
+                time.sleep(0.002)
                 self.write(line2[:16])  # 16文字まで
-                time.sleep(0.003)  # 最適化：0.01秒 → 0.003秒
+                time.sleep(0.003)
                 
                 self._last_text = (line1, line2)
                 self._error_count = 0  # 成功したらエラーカウントをリセット
-                
-                if LCD_I2C._debug_count % 15 == 0:
-                    print(f"[LCD SHOW] 表示完了")
             except Exception as e:
-                import traceback
-                print(f"[LCD SHOW ERROR #{LCD_I2C._debug_count}] エラー: {e}")
-                traceback.print_exc()
                 self._handle_error(e)
     
     def show_with_time(self, line2):

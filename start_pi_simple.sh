@@ -9,5 +9,5 @@ if [ -d "venv" ]; then
 fi
 
 # Python実行
-python3 pi_client_simple.py
+python3 pi_client.py
 
