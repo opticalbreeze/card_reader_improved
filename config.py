@@ -22,8 +22,12 @@ class ConfigGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("打刻システム - クライアント設定")
-        self.root.geometry("850x850")
+        self.root.geometry("600x650")
         self.root.resizable(True, True)
+        
+        # ウィンドウを閉じた時の動作を設定（起動後は閉じてもOK）
+        self.client_started = False
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # ウィンドウを中央に配置
         self.center_window()
@@ -233,7 +237,7 @@ class ConfigGUI:
         cancel_button = ttk.Button(
             button_frame,
             text="[キャンセル]",
-            command=self.root.quit,
+            command=self.on_closing,
             width=15
         )
         cancel_button.grid(row=0, column=2, padx=5)
@@ -407,7 +411,7 @@ class ConfigGUI:
             # 現在の設定表示を更新
             self.current_url_label.config(text=self.config['server_url'])
             messagebox.showinfo("成功", f"設定を保存しました\n\n新しいサーバーURL:\n{self.config['server_url']}")
-            self.root.quit()
+            self.root.destroy()
     
     def save_and_start(self):
         """設定を保存してクライアントを起動"""
@@ -453,18 +457,32 @@ class ConfigGUI:
             except Exception as e:
                 print(f"未送信データ送信エラー: {e}")
             
-            self.root.quit()
-            
             # クライアントを起動
             try:
+                self.status_label.config(text="クライアントを起動中...")
+                self.root.update()
+                
                 if sys.platform == "win32":
                     subprocess.Popen(["python", "win_client.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
                     subprocess.Popen(["python3", "pi_client.py"])
                 
-                messagebox.showinfo("起動", f"クライアントを起動しました\n\nサーバーURL: {self.config['server_url']}")
+                self.client_started = True
+                messagebox.showinfo("起動", f"クライアントを起動しました\n\nサーバーURL: {self.config['server_url']}\n\n設定画面を閉じてもクライアントは動作し続けます。")
+                self.root.destroy()
             except Exception as e:
                 messagebox.showerror("エラー", f"クライアントの起動に失敗しました:\n{e}")
+                self.status_label.config(text="[ERROR] 起動失敗")
+    
+    def on_closing(self):
+        """ウィンドウを閉じる時の処理"""
+        if self.client_started:
+            # クライアントが起動済みの場合は閉じる
+            self.root.destroy()
+        else:
+            # まだ起動していない場合は確認
+            if messagebox.askokcancel("終了", "設定を保存せずに終了しますか？"):
+                self.root.destroy()
     
     def run(self):
         """GUIを実行"""

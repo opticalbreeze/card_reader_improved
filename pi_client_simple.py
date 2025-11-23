@@ -1,30 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Raspberry Pi版シンプルクライアント
+Raspberry Pi版クライアント
 
-このモジュールは、Raspberry Pi環境で動作する軽量版ICカード打刻クライアントです。
-`pi_client.py`（統合版）よりも機能を削減し、シンプルな構造になっています。
+このモジュールは、Raspberry Pi環境で動作するICカード打刻クライアントです。
+Windows版（win_client.py）とは完全に分離されています。
 
 主な特徴:
-    - 最小限の機能: カード読み取り、サーバー送信、ローカル保存のみ
-    - スレッド数削減: 3-5個のスレッドで動作（統合版は10個以上）
-    - エラーハンドリング簡素化: 基本的なエラーハンドリングのみ
-    - オプション機能: LCD/GPIOはエラー時は自動的に無効化
+    - カード読み取り: nfcpyとPC/SCの両方に対応
+    - サーバー送信: 打刻データをサーバーに送信
+    - ローカル保存: SQLiteデータベースに保存
+    - 自動リトライ: 未送信データを定期的に再送信
+    - LCD表示: I2C接続のLCDディスプレイに状態を表示（オプション）
+    - GPIO制御: RGB LEDと圧電ブザーで視覚・聴覚フィードバック（オプション）
+    - エラー耐性: LCD/GPIOはエラー時は自動的に無効化
 
 使用方法:
-    python3 pi_client_simple.py
-
-統合版との違い:
-    - GUI機能なし
-    - メモリモニタリング機能なし
-    - メンテナンススレッドなし
-    - エラーハンドリングが簡素化
-
-推奨用途:
-    - リソースが限られた環境
-    - シンプルな動作が求められる環境
-    - デバッグやテスト用途
+    python3 pi_client.py
 
 依存関係:
     - common_utils.py: 共通ユーティリティ関数
@@ -491,7 +483,7 @@ class SimpleClient:
         else:
             self.database.save(card_id, timestamp, self.terminal_id, sent_to_server=0)
             self.gpio.sound("failure")
-            self.gpio.led("orange")
+            self.gpio.led("red")
             self.set_lcd_message(MESSAGE_SAVED_LOCAL, 1)
             print(f"[保存] {card_id} (オフライン)")
         
@@ -584,7 +576,7 @@ class SimpleClient:
     def run(self):
         """メイン処理（シンプル版）"""
         print("="*70)
-        print("[ラズパイ版シンプルクライアント]")
+        print("[ラズパイ版クライアント]")
         print("="*70)
         print(f"端末ID: {self.terminal_id}")
         print(f"DB: {self.database.db_path}")

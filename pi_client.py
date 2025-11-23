@@ -112,7 +112,7 @@ except ImportError:
         "off": (0, 0, 0),
         "green": (0, 100, 0),
         "blue": (0, 0, 100),
-        "cyan": (0, 100, 100),      # シアン（より明るい青緑）
+        "cyan": (0, 100, 100),
         "orange": (100, 50, 0),
         "red": (100, 0, 0)
     }
@@ -136,11 +136,11 @@ except ImportError:
 
 
 # ============================================================================
-# データベース管理
+# データベース管理（シンプル版）
 # ============================================================================
 
 class SimpleDatabase:
-    """データベース管理"""
+    """シンプルなデータベース管理"""
     
     def __init__(self, db_path=None):
         if db_path is None:
@@ -207,11 +207,11 @@ class SimpleDatabase:
 
 
 # ============================================================================
-# GPIO制御（エラー時は無効化）
+# GPIO制御（シンプル版、エラー時は無効化）
 # ============================================================================
 
 class SimpleGPIO:
-    """GPIO制御"""
+    """シンプルなGPIO制御"""
     
     def __init__(self):
         self.available = False
@@ -225,6 +225,7 @@ class SimpleGPIO:
             GPIO.setwarnings(False)
             GPIO.setup(BUZZER_PIN, GPIO.OUT)
             GPIO.setup([LED_RED_PIN, LED_GREEN_PIN, LED_BLUE_PIN], GPIO.OUT)
+            print(f"[GPIO] ピン設定完了: BUZZER={BUZZER_PIN}, LED={LED_RED_PIN},{LED_GREEN_PIN},{LED_BLUE_PIN}")
             self.pwms = [
                 GPIO.PWM(LED_RED_PIN, 1000),
                 GPIO.PWM(LED_GREEN_PIN, 1000),
@@ -235,45 +236,50 @@ class SimpleGPIO:
             self.available = True
             print("[GPIO] 初期化成功")
         except Exception as e:
-            print(f"[GPIO] 初期化失敗: {e} - GPIO機能を無効化")
+            import traceback
+            print(f"[GPIO] 初期化失敗: {e}")
+            print(f"[GPIO] エラー詳細:")
+            traceback.print_exc()
             self.available = False
     
     def sound(self, pattern):
         """ブザーを鳴らす"""
         if not self.available:
+            print(f"[GPIO] ブザー無効: pattern={pattern}")
             return
         try:
-            for duration, freq in BUZZER_PATTERNS.get(pattern, []):
+            patterns = BUZZER_PATTERNS.get(pattern, [])
+            if not patterns:
+                print(f"[GPIO] ブザーパターン未定義: {pattern}")
+                return
+            for duration, freq in patterns:
                 pwm = GPIO.PWM(BUZZER_PIN, freq)
                 pwm.start(50)
                 time.sleep(duration)
                 pwm.stop()
                 del pwm
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GPIO] ブザーエラー: {e}")
     
     def led(self, color):
         """LEDの色を設定"""
         if not self.available:
+            print(f"[GPIO] LED無効: color={color}")
             return
         try:
-            r, g, b = LED_COLORS.get(color, (0, 0, 0))
+            rgb = LED_COLORS.get(color)
+            if rgb is None:
+                print(f"[GPIO] LED色未定義: {color}")
+                return
+            r, g, b = rgb
             self.pwms[0].ChangeDutyCycle(r)
             self.pwms[1].ChangeDutyCycle(g)
             self.pwms[2].ChangeDutyCycle(b)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[GPIO] LEDエラー: color={color}, error={e}")
     
-    def led_blink(self, color, times=3, duration=0.2, interval=0.1):
-        """
-        LEDを点滅させる
-        
-        Args:
-            color: LEDの色
-            times: 点滅回数
-            duration: 点灯時間（秒）
-            interval: 消灯時間（秒）
-        """
+    def led_blink(self, color, times=3, duration=0.15, interval=0.1):
+        """LEDを点滅させる"""
         if not self.available:
             return
         for _ in range(times):
@@ -295,11 +301,11 @@ class SimpleGPIO:
 
 
 # ============================================================================
-# Raspberry Pi版クライアント
+# シンプルクライアント
 # ============================================================================
 
 class SimpleClient:
-    """Raspberry Pi版クライアント"""
+    """シンプルなクライアント（最小限の機能のみ）"""
     
     def __init__(self, server_url=None, retry_interval=None, lcd_settings=None):
         # 設定読み込み
@@ -331,6 +337,7 @@ class SimpleClient:
         self.count = 0
         self.history = {}
         self.attendance_history = {}
+        self.processing_cards = set()  # 処理中のカードIDを追跡
         self.lock = threading.Lock()
         self.running = True
         self.server_available = False
@@ -342,6 +349,11 @@ class SimpleClient:
             except Exception:
                 self.lcd = None
         
+        # GPIO状態確認
+        print(f"[GPIO状態] available={self.gpio.available}")
+        if not self.gpio.available:
+            print("[警告] GPIO機能が無効です - LEDとブザーは動作しません")
+        
         # サーバー接続チェック
         if self.server_url:
             self.server_available = check_server_connection(self.server_url)
@@ -352,7 +364,7 @@ class SimpleClient:
                 print("[サーバー] 接続失敗 - オフラインモード")
                 self.gpio.led("orange")
         
-        # バックグラウンドスレッド開始
+        # バックグラウンドスレッド開始（最小限）
         if self.server_url and REQUESTS_AVAILABLE:
             threading.Thread(target=self._retry_worker, daemon=True).start()
         
@@ -360,7 +372,7 @@ class SimpleClient:
             threading.Thread(target=self._lcd_worker, daemon=True).start()
     
     def _retry_worker(self):
-        """リトライワーカー"""
+        """リトライワーカー（シンプル版）"""
         last_retry_time = 0
         while self.running:
             time.sleep(RETRY_CHECK_INTERVAL)
@@ -382,60 +394,29 @@ class SimpleClient:
                             print(f"[リトライ失敗] IDm: {idm}")
     
     def _lcd_worker(self):
-        """LCD更新ワーカー"""
+        """LCD更新ワーカー（シンプル版）"""
         if not self.lcd:
             return
         current_message = MESSAGE_TOUCH_CARD
-        update_count = 0
-        error_count = 0
         while self.running:
             try:
                 if hasattr(self, '_lcd_message'):
                     current_message = self._lcd_message
-                
-                # メッセージの長さチェック
-                if len(current_message) > 16:
-                    current_message = current_message[:16]
-                
                 self.lcd.show_with_time(current_message)
-                update_count += 1
-                error_count = 0  # 成功したらエラーカウントをリセット
-                
-            except Exception as e:
-                error_count += 1
-                import traceback
-                print(f"[LCD ERROR #{error_count}] 更新回数: {update_count}, エラー: {e}")
-                print(f"[LCD ERROR] トレースバック:")
-                traceback.print_exc()
-                
-                # エラーが5回連続したら無効化
-                if error_count >= 5:
-                    print(f"[LCD FATAL] エラーが{error_count}回連続 - LCD機能を無効化")
-                    self.lcd = None
-                    break
-                
-                # エラー時は少し待機してから再試行
-                time.sleep(0.5)
+            except Exception:
+                pass
             time.sleep(2)
     
     def set_lcd_message(self, message, duration=0):
         """LCDメッセージ設定"""
         if self.lcd:
-            # メッセージを16文字に制限
             if len(message) > 16:
                 message = message[:16]
-            
             self._lcd_message = message
             try:
                 self.lcd.show_with_time(message)
-            except Exception as e:
-                # エラー時はリセットを試みる
-                try:
-                    self.lcd.reset()
-                    time.sleep(0.1)
-                except Exception:
-                    # リセット失敗時はLCD機能を無効化
-                    self.lcd = None
+            except Exception:
+                pass
         if duration > 0:
             def reset():
                 time.sleep(duration)
@@ -443,65 +424,65 @@ class SimpleClient:
             threading.Thread(target=reset, daemon=True).start()
     
     def process_card(self, card_id, reader_idx):
-        """カード処理"""
-        timestamp = datetime.now().isoformat()
+        """カード処理（シンプル版）"""
+        # 処理中の重複チェック（ロック内で行う）
+        with self.lock:
+            if card_id in self.processing_cards:
+                return False  # 既に処理中
+            self.processing_cards.add(card_id)
         
-        # デバッグ出力（15回ごと）
-        if self.count % 15 == 0:
-            import sys
-            import gc
-            print(f"[CARD PROCESS #{self.count}] カードID: {card_id}")
-            print(f"[CARD PROCESS] メモリ使用量: {sys.getsizeof(self.history)} bytes (history), {sys.getsizeof(self.attendance_history)} bytes (attendance_history)")
-            print(f"[CARD PROCESS] オブジェクト数: {len(gc.get_objects())}")
-            if self.lcd:
-                print(f"[CARD PROCESS] LCD状態: available={self.lcd.available}, _error_count={getattr(self.lcd, '_error_count', 'N/A')}")
-        
-        # フィードバック
-        self.gpio.sound("card_read")
-        self.gpio.led("green")
-        self.set_lcd_message(MESSAGE_READING, 1)
-        
-        # 重複チェック
-        is_dup, _ = is_duplicate_attendance(card_id, timestamp, self.attendance_history)
-        if is_dup:
-            print(f"[重複] {card_id} - スキップ")
-            self.gpio.sound("failure")
-            self.gpio.led("orange")
-            time.sleep(1)
+        try:
+            timestamp = datetime.now().isoformat()
+            
+            # フィードバック
+            self.gpio.sound("card_read")
             self.gpio.led("green")
-            return False
-        
-        # サーバー送信
-        server_sent = False
-        if self.server_url and REQUESTS_AVAILABLE:
-            success, _ = send_attendance_to_server(card_id, timestamp, self.terminal_id, self.server_url)
-            server_sent = success
-        
-        # 保存
-        if server_sent:
-            self.database.save(card_id, timestamp, self.terminal_id, sent_to_server=1)
-            self.gpio.sound("success")
-            # 成功時はシアン色で3回点滅（よりわかりやすく）
-            self.gpio.led_blink("cyan", times=3, duration=0.15, interval=0.1)
-            self.gpio.led("cyan")  # 最後にシアン色で点灯
-            self.set_lcd_message(MESSAGE_SENDING, 1)
-            print(f"[送信成功] {card_id}")
-            time.sleep(1.0)  # 成功時は少し長く表示
-        else:
-            self.database.save(card_id, timestamp, self.terminal_id, sent_to_server=0)
-            self.gpio.sound("failure")
-            self.gpio.led("red")  # 送信失敗時は赤色
-            self.set_lcd_message(MESSAGE_SAVED_LOCAL, 1)
-            print(f"[保存] {card_id} (オフライン)")
-            time.sleep(0.5)
-        
-        self.gpio.led("green")
-        return True
+            self.set_lcd_message(MESSAGE_READING, 1)
+            
+            # 重複チェック（同じhh:mmでなければOK）
+            is_dup, _ = is_duplicate_attendance(card_id, timestamp, self.attendance_history)
+            if is_dup:
+                print(f"[重複] {card_id} - スキップ")
+                self.gpio.sound("failure")
+                self.gpio.led("orange")
+                time.sleep(1)
+                self.gpio.led("green")
+                return False
+            
+            # サーバー送信
+            server_sent = False
+            if self.server_url and REQUESTS_AVAILABLE:
+                success, _ = send_attendance_to_server(card_id, timestamp, self.terminal_id, self.server_url)
+                server_sent = success
+            
+            # 保存
+            if server_sent:
+                self.database.save(card_id, timestamp, self.terminal_id, sent_to_server=1)
+                self.gpio.sound("success")
+                # 成功時はシアン色で3回点滅
+                self.gpio.led_blink("cyan", times=3, duration=0.15, interval=0.1)
+                self.gpio.led("cyan")
+                self.set_lcd_message(MESSAGE_SENDING, 1)
+                print(f"[送信成功] {card_id}")
+                time.sleep(1.0)
+            else:
+                self.database.save(card_id, timestamp, self.terminal_id, sent_to_server=0)
+                self.gpio.sound("failure")
+                self.gpio.led("red")
+                self.set_lcd_message(MESSAGE_SAVED_LOCAL, 1)
+                print(f"[保存] {card_id} (オフライン)")
+                time.sleep(0.5)
+            
+            self.gpio.led("green")
+            return True
+        finally:
+            # 処理完了後、processing_cardsから削除
+            with self.lock:
+                self.processing_cards.discard(card_id)
     
     def nfcpy_worker(self, path, idx):
-        """nfcpyワーカー"""
+        """nfcpyワーカー（シンプル版）"""
         last_id = None
-        last_detection_time = None  # 最後にカードが検出された時刻
         clf = None
         
         try:
@@ -525,26 +506,15 @@ class SimpleClient:
                                     self.history[card_id] = now
                                     self.count += 1
                                     print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [カード#{self.count}] IDm: {card_id}")
-                                    self.process_card(card_id, idx)
                                     last_id = card_id
-                                    last_detection_time = now
-                        elif card_id == last_id:
-                            # 同じカードが連続検出されている場合は時刻を更新
-                            last_detection_time = time.time()
-                    else:
-                        # カードが検出されない場合
-                        current_time = time.time()
-                        # カードが離れてから1秒以上経過したらlast_idをリセット
-                        if last_detection_time is not None and current_time - last_detection_time > 1.0:
-                            last_id = None
-                            last_detection_time = None
-                            
+                                    # process_cardは重複チェックを内蔵しているので、直接呼び出す
+                                    self.process_card(card_id, idx)
+                        else:
+                            # カードが離れた場合、last_idをリセット
+                            if not tag:
+                                last_id = None
                 except IOError:
-                    # カードが離れた可能性がある
-                    current_time = time.time()
-                    if last_detection_time is not None and current_time - last_detection_time > 1.0:
-                        last_id = None
-                        last_detection_time = None
+                    last_id = None
                     pass
                 except Exception as e:
                     print(f"[nfcpyエラー] {e}")
@@ -558,9 +528,8 @@ class SimpleClient:
                     pass
     
     def pcsc_worker(self, reader, idx):
-        """PC/SCワーカー"""
+        """PC/SCワーカー（シンプル版）"""
         last_id = None
-        last_detection_time = None  # 最後にカードが検出された時刻
         
         while self.running:
             try:
@@ -588,27 +557,16 @@ class SimpleClient:
                             self.history[card_id] = now
                             self.count += 1
                             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] [カード#{self.count}] IDm: {card_id}")
-                            self.process_card(card_id, idx)
                             last_id = card_id
-                            last_detection_time = now
-                elif card_id == last_id:
-                    # 同じカードが連続検出されている場合は時刻を更新
-                    last_detection_time = time.time()
+                            # process_cardは重複チェックを内蔵しているので、直接呼び出す
+                            self.process_card(card_id, idx)
                 else:
-                    # カードが検出されない場合
-                    current_time = time.time()
-                    # カードが離れてから1秒以上経過したらlast_idをリセット
-                    if last_detection_time is not None and current_time - last_detection_time > 1.0:
+                    if not card_id:
                         last_id = None
-                        last_detection_time = None
                 
                 connection.disconnect()
             except (CardConnectionException, NoCardException):
-                # カードが離れた可能性がある
-                current_time = time.time()
-                if last_detection_time is not None and current_time - last_detection_time > 1.0:
-                    last_id = None
-                    last_detection_time = None
+                last_id = None
                 pass
             except Exception as e:
                 print(f"[PC/SCエラー] {e}")
@@ -616,7 +574,7 @@ class SimpleClient:
             time.sleep(PCSC_POLL_INTERVAL)
     
     def run(self):
-        """メイン処理"""
+        """メイン処理（シンプル版）"""
         print("="*70)
         print("[ラズパイ版クライアント]")
         print("="*70)
@@ -628,7 +586,7 @@ class SimpleClient:
         print(f"pyscard: {'利用可能' if PYSCARD_AVAILABLE else '利用不可'}")
         print()
         
-        # リーダー検出（1回のみ）
+        # リーダー検出（シンプル版：1回のみ）
         nfcpy_paths = []
         pcsc_readers_list = []
         
