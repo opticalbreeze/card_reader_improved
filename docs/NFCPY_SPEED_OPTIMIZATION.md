@@ -202,21 +202,20 @@ def nfcpy_worker(self, path, idx):
 
 以下のファイルに最適化を適用済み：
 
-1. ✅ `client_card_reader_windows_gui_improved.py`
-2. ✅ `client_card_reader_unified_improved.py`
-3. ✅ `client_card_reader_windows_gui.py`
-4. ✅ `client_card_reader_unified.py`
+1. ✅ `win_client.py`（Windows版 - 現在のメインファイル）
+2. ✅ `pi_client.py`（Raspberry Pi版 - 現在のメインファイル）
 
 ## 🚀 使い方
 
 特別な設定は不要です。最適化されたファイルをそのまま使用してください：
 
 ```bash
-# Windows GUIクライアント（最適化版）
-python client_card_reader_windows_gui_improved.py
+# Windows GUIクライアント
+python win_client.py
 
-# Raspberry Pi統合版（最適化版）
-python client_card_reader_unified_improved.py
+# Raspberry Pi版（仮想環境で実行）
+source venv/bin/activate
+python3 pi_client.py
 ```
 
 ## ⚠️ 注意事項

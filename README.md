@@ -8,21 +8,21 @@ ICカードリーダーを使った勤怠打刻システムです。WindowsとRa
 
 **はじめてセットアップする方は、こちらをご覧ください：**
 
-### 📖 [クイックスタートガイド（QUICK_START.md）](QUICK_START.md)
+### 📖 [セットアップガイド](docs/RASPBERRY_PI_SETUP_FROM_SCRATCH.md)
 
 **5ステップで起動できます！**
 
 1. ファイルをダウンロード
 2. `./setup.sh` を実行（全自動セットアップ）
 3. 再起動
-4. 設定ファイルを編集
-5. `./start_unified.sh` で起動
+4. 設定ファイルを編集（`python3 config.py`）
+5. `./start_pi_simple.sh` で起動
 
 ### 🔧 便利なツール
 
 - **自動セットアップ**: `./setup.sh` - 依存関係を全自動インストール
-- **システム診断**: `python3 check_system.py` - 問題を自動検出
-- **簡単起動**: `./start_unified.sh` - ワンクリックで起動
+- **簡単起動**: `./start_pi_simple.sh` - ワンクリックで起動（仮想環境自動有効化）
+- **詳細起動**: `./start_pi.sh` - USBデバイスや権限も確認して起動
 
 ---
 
@@ -62,9 +62,10 @@ card_reader_improved/
 ├── gpio_config.py             # GPIO設定（Raspberry Pi用）
 ├── lcd_i2c.py                 # LCD制御（Raspberry Pi用）
 ├── start_win.bat              # Windows版起動
-├── start_pi.sh                # Raspberry Pi版起動
+├── start_pi_simple.sh         # Raspberry Pi版起動（シンプル版、推奨）
+├── start_pi.sh                # Raspberry Pi版起動（詳細版）
 ├── requirements_windows.txt   # Windows依存パッケージ
-├── requirements_unified.txt   # Raspberry Pi依存パッケージ
+├── requirements_pi.txt        # Raspberry Pi依存パッケージ
 ├── client_config.json         # クライアント設定ファイル
 ├── client_config_sample.json  # 設定ファイルサンプル
 └── docs/                      # ドキュメント
@@ -95,25 +96,26 @@ docker-compose up -d
 
 ### 2. クライアント側のセットアップ
 
-#### Windows（CUI版）
+#### Windows版
 ```cmd
 pip install -r requirements_windows.txt
-start_client_config.bat  # 設定（初回のみ）
-start_client.bat         # クライアント起動
-```
-
-#### Windows（GUI版）
-```cmd
-pip install -r requirements_windows.txt
-start_client_config.bat  # 設定（初回のみ）
-start_windows_gui.bat    # GUI版起動
+config.bat      # 設定（初回のみ、GUI設定ツール起動）
+start_win.bat   # クライアント起動（win_client.py）
 ```
 
 #### Raspberry Pi版
 ```bash
-pip3 install -r requirements_unified.txt
-python3 config.py  # 設定（初回のみ）
-./start_pi.sh      # クライアント起動
+# セットアップスクリプトを実行（推奨）
+./setup.sh
+
+# または手動でインストール
+pip3 install -r requirements_pi.txt
+
+# 設定（初回のみ）
+python3 config.py
+
+# クライアント起動（仮想環境自動有効化）
+./start_pi_simple.sh
 ```
 
 ## 🔧 対応カードリーダー

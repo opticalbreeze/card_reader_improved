@@ -463,8 +463,10 @@ class ConfigGUI:
                 self.root.update()
                 
                 if sys.platform == "win32":
+                    # Windows版: win_client.py（参照先変更禁止）
                     subprocess.Popen(["python", "win_client.py"], creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
+                    # ラズパイ版: pi_client.py（参照先変更禁止 - バージョン管理方針参照: docs/NO_NEW_VERSIONS.md）
                     subprocess.Popen(["python3", "pi_client.py"])
                 
                 self.client_started = True

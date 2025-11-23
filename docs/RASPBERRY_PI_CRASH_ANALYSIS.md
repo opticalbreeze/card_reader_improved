@@ -57,7 +57,7 @@ def _init_components(self):
 ```
 [エラー] GPIO権限エラー: [Errno 13] Permission denied: '/dev/gpiomem'
 [エラー] GPIOを使用するには、以下のいずれかが必要です:
-  1. sudoで実行: sudo python3 client_card_reader_unified_improved.py
+  1. sudoで実行: sudo python3 pi_client.py（非推奨）
   2. gpioグループに追加: sudo usermod -a -G gpio $USER (再ログインが必要)
 Traceback (most recent call last):
   File "pi_client.py", line 627, in _init_components

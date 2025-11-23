@@ -71,12 +71,18 @@ fi
 echo "[5/7] Pythonライブラリをインストール中..."
 source venv/bin/activate
 pip install --upgrade pip -qq
-pip install -q \
-    smbus2 \
-    nfcpy \
-    pyscard \
-    requests \
-    RPi.GPIO
+
+# requirements_pi.txtが存在する場合はそれを使用、なければ個別インストール
+if [ -f "requirements_pi.txt" ]; then
+    pip install -q -r requirements_pi.txt
+else
+    pip install -q \
+        smbus2 \
+        nfcpy \
+        pyscard \
+        requests \
+        RPi.GPIO
+fi
 
 echo "[6/7] カードリーダーのアクセス権限を設定中..."
 # Sony RC-S380のudevルール
@@ -118,11 +124,13 @@ echo "     (サーバーのIPアドレスを正しく設定)"
 echo ""
 echo "  3. プログラムを起動してください:"
 echo "     cd $(pwd)"
-echo "     source venv/bin/activate"
-echo "     python3 client_card_reader_unified_improved.py"
+echo "     source venv/bin/activate  # 仮想環境を有効化（必須）"
+echo "     python3 pi_client.py"
 echo ""
-echo "  または、起動スクリプトを使用:"
-echo "     ./start_unified.sh"
+echo "  または、起動スクリプトを使用（仮想環境を自動有効化）:"
+echo "     ./start_pi_simple.sh"
+echo "     または"
+echo "     ./start_pi.sh"
 echo ""
 echo "========================================================================"
 echo ""

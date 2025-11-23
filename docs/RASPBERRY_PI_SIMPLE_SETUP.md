@@ -295,7 +295,7 @@ source venv/bin/activate
 # (venv) がプロンプトに表示されることを確認
 
 # シンプル版を起動
-python3 pi_client_simple.py
+python3 pi_client.py
 
 # 終了時
 # Ctrl+C でプログラムを終了
@@ -362,7 +362,7 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/card_reader_improved
 Environment="PATH=/home/pi/card_reader_improved/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/home/pi/card_reader_improved/venv/bin/python3 /home/pi/card_reader_improved/pi_client_simple.py
+ExecStart=/home/raspberry/Desktop/card_reader_improved/venv/bin/python3 /home/raspberry/Desktop/card_reader_improved/pi_client.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
